@@ -2,6 +2,7 @@ import os
 import pickle
 import pandas as pd 
 import numpy as np
+import pandas as pd
 # import random
 from typing import cast
 
@@ -11,6 +12,7 @@ from torch.utils.data import DataLoader, IterableDataset
 
 from synformer.chem.fpindex import FingerprintIndex
 from synformer.chem.matrix import ReactantReactionMatrix
+from sklearn.model_selection import KFold
 # from synformer.chem.stack import create_stack_step_by_step
 from synformer.chem.mol import FingerprintOption, Molecule 
 from synformer.utils.train import worker_init_fn
@@ -193,6 +195,8 @@ class ProjectionDataModule(pl.LightningDataModule):
         config,
         batch_size: int,
         num_workers: int = 4,
+        fold_idx: int = 0,
+        k: int = 1,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -200,6 +204,8 @@ class ProjectionDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.dataset_options = kwargs
+        self.fold_idx = fold_idx
+        self.k = k
 
     def setup(self, stage: str | None = None) -> None:
         trainer = self.trainer
@@ -216,13 +222,9 @@ class ProjectionDataModule(pl.LightningDataModule):
                 f"Fingerprint index not found: {self.config.chem.fpindex}. "
                 "Please generate the fingerprint index before training."
             )
-        if not os.path.exists(self.config.chem.protein_molecule_pairs_train_path):
+        if not os.path.exists(self.config.chem.protein_molecule_pairs_path):
             raise FileNotFoundError(
-                f"Protein-molecule pairs (train) not found: {self.config.chem.protein_molecule_pairs_train_path}."
-            )
-        if not os.path.exists(self.config.chem.protein_molecule_pairs_val_path):
-            raise FileNotFoundError(
-                f"Protein-molecule pairs (val) not found: {self.config.chem.protein_molecule_pairs_val_path}."
+                f"Protein-molecule pairs not found: {self.config.chem.protein_molecule_pairs_path}."
             )
         if not os.path.exists(self.config.chem.protein_embedding_path):
             raise FileNotFoundError(
@@ -239,13 +241,15 @@ class ProjectionDataModule(pl.LightningDataModule):
         with open(self.config.chem.fpindex, "rb") as f:
             fpindex = pickle.load(f)
 
-        with open(self.config.chem.protein_molecule_pairs_train_path, "rb") as f:
-            protein_molecule_pairs_train = pd.read_csv(f).to_numpy()
-            print(len(protein_molecule_pairs_train), "\t", "protein-molecule pairs (train)")
+        with open(self.config.chem.protein_molecule_pairs_path, "rb") as f:
+            all_pairs = pd.read_csv(f).to_numpy()
+            print(len(all_pairs), "\t", "protein-molecule pairs (total)")
 
-        with open(self.config.chem.protein_molecule_pairs_val_path, "rb") as f:
-            protein_molecule_pairs_val = pd.read_csv(f).to_numpy()
-            print(len(protein_molecule_pairs_val), "\t", "protein-molecule pairs (val)")
+        kf = KFold(n_splits=self.k, shuffle=True, random_state=self.config.train.seed)
+        splits = list(kf.split(all_pairs))
+        train_idx, val_idx = splits[self.fold_idx]
+        protein_molecule_pairs_train = all_pairs[train_idx]
+        protein_molecule_pairs_val = all_pairs[val_idx]
 
         # Always map_location="cpu" so that these embeddings live on CPU
         with open(self.config.chem.protein_embedding_path, "rb") as f:
