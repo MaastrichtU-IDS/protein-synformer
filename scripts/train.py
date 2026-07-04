@@ -118,7 +118,9 @@ def main(
     # Resume checkpoint if specified
     if resume:
         print("Resuming from checkpoint:", resume)
-        ckpt = torch.load(resume, map_location="cpu" if config.system.device == "cpu" else None)
+        # Load to CPU unless we actually have CUDA; the pretrained ckpt was saved on GPU,
+        # so map_location=None would try to deserialize onto CUDA (fails on CPU/MPS machines).
+        ckpt = torch.load(resume, map_location=None if torch.cuda.is_available() else "cpu")
         state_dict = ckpt["state_dict"]
         filtered_state_dict = {
             k: v
