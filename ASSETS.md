@@ -49,13 +49,21 @@ coverage data), `config/wandb.yml`.
   300-protein eval: validity 0.442, uniqueness 0.736, novelty(vs known ligands) 0.949,
   per-protein internal diversity 0.809, scaffold diversity 0.471, mean SA 2.42 (easy to
   synthesize), route length mean 1.71 / max 5.
-- **End-to-end generate pipeline — RUNS** (model loads: 192.8M params; 23-step decode).
-- **CAVEAT — faithful re-sampling needs the EXACT original index.** The comp_2048 index
-  regenerated from the 2025 Enamine catalogue (238,536 blocks) badly degrades
-  reconstruction: target P56528_WT went from 95/100 valid (saved infos) to 1/32 on
-  re-sample. Cause: catalogue drift (2025 vs the study's 2023 223,244-block set) breaks
-  the learned fingerprint→building-block retrieval. To re-sample faithfully we need the
-  original `data/processed/comp_2048/{fpindex,matrix}.pkl` (or the 2023 SDF), or the
-  matching index from HF `whgao/synformer`.
-- Pending: exact original index (above); exact test split for exact-match numbers; Fig-4
-  coverage (data present: `synformer_ligands_test_v2025-04-02.csv`); affinity via DeepPurpose.
+- **End-to-end generate pipeline — WORKS.** The `big_pretrained_last4.ckpt` model
+  (last-4-layers fine-tune) re-samples 32/32 valid for P56528_WT using our rebuilt
+  comp_2048 index. So re-sampling and the 2025-catalogue index are both fine.
+- **LoRA-failure finding — INDEPENDENTLY REPRODUCED.** `epoch=23-step=28076.ckpt` has
+  `lora=true, rank=64`; it re-samples only ~1/32 valid (trivial fragments). This matches
+  the report's conclusion that LoRA essentially failed to learn. (Earlier "catalogue
+  drift" hypothesis was FALSIFIED: the HF `whgao/synformer` 2048-bit index gives the same
+  1/32 for the LoRA model, and the last-4 model gives 32/32 with our index.)
+  → The saved `infos` (95/100 valid, sim ~0.18) came from a GOOD model (last-N), not the
+  LoRA checkpoint; the `evaluations/epoch=23...` folder name is misleading.
+- **Binding affinity (RQ2, the paper's biggest gap) — MEASURED (2026-07-04)** via
+  DeepPurpose `MPNN_CNN_DAVIS` over 194 proteins (`scripts/eval_affinity.py`):
+  best generated vs best known ligand (pKd): 12.78 vs 10.92; 70.6% of proteins have a
+  generated molecule >= best known ligand; 12% of all generations beat the best known
+  ligand. Proxy scorer, not experimental — directional evidence for the abstract's claim.
+- Redundant: `data/processed/comp_hf/` (HF index) — not needed; our rebuilt comp_2048 works.
+- Pending: exact test split for exact-match numbers; Fig-4 coverage
+  (data present: `synformer_ligands_test_v2025-04-02.csv`); notrain baseline; loss curves.
