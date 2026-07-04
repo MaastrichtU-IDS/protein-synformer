@@ -32,6 +32,7 @@ from synformer.utils.misc import n_params
 @click.option("--num-sanity-val-steps", type=int, default=1)
 @click.option("--log-dir", type=click.Path(dir_okay=True, file_okay=False), default="./logs")
 @click.option("--resume", type=click.Path(exists=True, dir_okay=False), default=None)
+@click.option("--max-steps", type=int, default=None)
 def main(
     config_path: str,
     seed: int,
@@ -43,6 +44,7 @@ def main(
     num_sanity_val_steps: int,
     log_dir: str,
     resume: str | None,
+    max_steps: int | None,
 ):
     # Ensure batch size is divisible across devices
     if batch_size % devices != 0:
@@ -191,12 +193,12 @@ def main(
 
     # Initialize PyTorch Lightning trainer
     trainer = pl.Trainer(
-        accelerator=config.system.device, 
+        accelerator=config.system.device,
         devices=devices,
         num_nodes=num_nodes,
         strategy=(
-            strategies.DDPStrategy(static_graph=True, process_group_backend="gloo") 
-            if devices > 1 
+            strategies.DDPStrategy(static_graph=True, process_group_backend="gloo")
+            if devices > 1
             else "auto"
         ),
         num_sanity_val_steps=num_sanity_val_steps,
@@ -210,6 +212,7 @@ def main(
             loggers.TensorBoardLogger(log_dir, name=exp_name, version=exp_ver),
         ],
         max_epochs=config.train.max_epochs,
+        max_steps=max_steps if max_steps is not None else -1,
         val_check_interval=config.train.val_check_interval,
         limit_val_batches=4,
     )
