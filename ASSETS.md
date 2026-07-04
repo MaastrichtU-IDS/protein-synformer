@@ -70,6 +70,13 @@ coverage data), `config/wandb.yml`.
 - **notrain baseline (Table III col 1)** — `scripts/sample_notrain.py` builds the baseline
   (pretrained decoder+heads, reinit cross-attn, untrained protein encoder) and samples;
   running on a 60-protein subset to estimate the ~0.154 baseline similarity.
+- **notrain baseline (Table III col 1) — REPRODUCED** on 60-protein MPS subset:
+  best-per-pair mean 0.132 (report 0.154), below the fine-tuned 0.180 — qualitative
+  Table III result (fine-tune > baseline) holds.
+- **Local fine-tuning is VIABLE (benchmarked `scripts/bench_train.py`, MPS).** Big model
+  (178M): full-FT 0.56 s/step (len 512) to 0.74 s (len 2010); last-4 0.44-0.68 s; peak
+  memory <=11 GB (128 GB available). A 28k-step run = ~3.4-5.8 h. GPU sampling/retrieval
+  also MPS-enabled (matmul fingerprint retrieval). No external GPU needed for SP2.
 - Redundant: `data/processed/comp_hf/` (removed) — our rebuilt comp_2048 works.
 - Pending: exact test split for exact-match numbers; loss curves (Figs 5-7, need
   TensorBoard logs or retrain); model-size Small-vs-Big comparison.
