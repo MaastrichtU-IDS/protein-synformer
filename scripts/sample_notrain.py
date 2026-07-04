@@ -48,11 +48,11 @@ def build_notrain_model(config, pretrained_path: str, device: str) -> Synformer:
 @click.option("--n-proteins", default=40, type=int)
 @click.option("--repeat", default=40, type=int)
 @click.option("--seed", default=42, type=int)
+@click.option("--device", default="mps", type=str, help="cpu | mps | cuda")
 @click.option("--out", "out_path", default="data/evaluations/notrain/infos.pkl")
-def main(config_path, pretrained, n_proteins, repeat, seed, out_path):
+def main(config_path, pretrained, n_proteins, repeat, seed, device, out_path):
     torch.manual_seed(seed)
     config = OmegaConf.load(config_path)
-    device = "cpu"
     model = build_notrain_model(config, pretrained, device)
     fpindex: FingerprintIndex = pickle.load(open(config.chem.fpindex, "rb"))
     rxn_matrix: ReactantReactionMatrix = pickle.load(open(config.chem.rxn_matrix, "rb"))

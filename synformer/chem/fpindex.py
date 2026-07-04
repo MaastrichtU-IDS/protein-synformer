@@ -123,9 +123,14 @@ class FingerprintIndex:
 
     @torch.no_grad()
     def query_cuda(self, q: torch.Tensor, k: int) -> list[list[_QueryResult]]:
+        # Fingerprints are binary, so Manhattan distance = |a| + |b| - 2*(a.b). That turns
+        # the whole thing into one matmul whose output is only (n_mols, n_queries) -- no
+        # (n_mols, n_queries, fp_dim) intermediate (the original cdist path OOMs at >100 GiB
+        # on MPS/CUDA for a large index). Exact for binary inputs.
         bsz = q.size(0)
-        q = q.reshape([-1, self._fp_option.dim])
-        pwdist = torch.cdist(self.fp_cuda(q.device), q, p=1)  # (n_mols, n_queries)
+        q = q.reshape([-1, self._fp_option.dim]).float()  # (n_queries, fp_dim)
+        fp = self.fp_cuda(q.device)  # (n_mols, fp_dim)
+        pwdist = fp.sum(1, keepdim=True) + q.sum(1)[None, :] - 2.0 * (fp @ q.t())  # (n_mols, n_queries)
         dist_t, idx_t = torch.topk(pwdist, k=k, dim=0, largest=False)  # (k, n_queries)
         dist = dist_t.t().reshape([bsz, -1]).cpu().numpy()
         idx = idx_t.t().reshape([bsz, -1]).cpu().numpy()

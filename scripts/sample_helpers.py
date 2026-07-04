@@ -75,7 +75,7 @@ def sample(
         mol, feat = featurize_smiles(true_smiles, device, repeat=repeat)
     else:
         feat = {}
-    feat["protein_embeddings"] = protein_embeddings[target].unsqueeze(0).repeat(repeat, 1, 1).float()
+    feat["protein_embeddings"] = protein_embeddings[target].unsqueeze(0).repeat(repeat, 1, 1).float().to(device)
     with torch.inference_mode():
         result = model.generate_without_stack(
             feat,
