@@ -19,7 +19,7 @@ chem:
   protein_molecule_pairs_train_path: data/protein_molecule_pairs/sp2_train.csv
   protein_molecule_pairs_val_path: data/protein_molecule_pairs/sp2_val.csv
   # protein_molecule_pairs_test_path: data/protein_molecule_pairs/papyrus_test_19399.csv
-  protein_embedding_path: data/protein_embeddings/embeddings_selection_float16_4973.pth 
+  protein_embedding_path: data/protein_embeddings/embeddings_selection_float16_4973.pth
   synthetic_pathways_path: data/synthetic_pathways/filtered_pathways_370000.pth
   # !!
 
@@ -48,7 +48,7 @@ model:
     output_norm: false
     fingerprint_dim: ${chem.fp_option.morgan_n_bits}
     num_reaction_classes: 120
-    reinit: true 
+    reinit: true
     lora: false
     lora_rank: 0 # Overwritten by Optuna when doing trials
   fingerprint_head_type: diffusion

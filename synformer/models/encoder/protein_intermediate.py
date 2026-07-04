@@ -46,10 +46,6 @@ class ProteinIntermediateEncoder(BaseEncoder):
     def forward(self, batch: ProjectionBatch):
         if "protein_embeddings" not in batch:
             raise ValueError("protein_embeddings must be in batch")
-        for v in batch.values():
-            if isinstance(v, torch.Tensor):
-                device = v.device
-                break
         protein_embeddings = batch["protein_embeddings"]  # (batch_size, protein_seq_len, d_protein)
         bsz = protein_embeddings.size(0)  # batch size 
 

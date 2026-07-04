@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 
 from synformer.data.common import ProjectionBatch
@@ -21,7 +20,7 @@ class ProteinTransformerEncoder(BaseEncoder):
         )
         self.enc = nn.TransformerEncoder(
             layer, num_layers=num_layers,
-            norm=nn.LayerNorm(d_model) if output_norm else None,
+            norm=nn.LayerNorm(d_model) if output_norm else None, enable_nested_tensor=False,
         )
 
     @property

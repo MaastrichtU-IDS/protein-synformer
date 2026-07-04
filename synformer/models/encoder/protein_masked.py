@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 
 from synformer.data.common import ProjectionBatch
