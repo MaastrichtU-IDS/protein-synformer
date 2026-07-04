@@ -297,10 +297,10 @@ class ProjectionDataModule(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
-            num_workers=1,
+            num_workers=0,  # a spawned worker must inherit the ~10GB in-memory dataset (fpindex+emb+pathways); fragile -> worker SIGTERM at val
             collate_fn=Collater(),
             worker_init_fn=worker_init_fn,
-            persistent_workers=True,
+            persistent_workers=False,
             pin_memory=True,
         )
 
@@ -376,9 +376,9 @@ class ProjectionDataModuleForSample(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
-            num_workers=1,
+            num_workers=0,  # a spawned worker must inherit the ~10GB in-memory dataset (fpindex+emb+pathways); fragile -> worker SIGTERM at val
             collate_fn=Collater(),
             worker_init_fn=worker_init_fn,
-            persistent_workers=True,
+            persistent_workers=False,
             pin_memory=True,
         )
