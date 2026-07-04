@@ -38,8 +38,8 @@ class Collater:
         self.max_protein_len = max_protein_len
         self.max_num_tokens = max_num_tokens
         self.spec_protein = {
-            "protein_embeddings": collate_1d_features,  # not sure if collate_1d_features is the correct one
-            # "protein_padding_mask": collate_padding_masks,  # currently not used
+            "protein_embeddings": collate_1d_features,
+            "protein_padding_mask": collate_padding_masks,
         }
         self.spec_tokens = {
             "token_types": collate_tokens,
@@ -155,6 +155,7 @@ class ProjectionDataset(IterableDataset[ProjectionData]):
                     dtype=torch.float32
                 )
                 protein_embeddings = self._protein_embeddings[protein_id].to(torch.float32)
+                protein_padding_mask = torch.zeros(protein_embeddings.size(0), dtype=torch.bool)
                 token_padding_mask = torch.zeros_like(token_types, dtype=torch.bool)
                 # I assume it's n_tokens-2 elements (minus start, end tokens); see example below: 3 elements 
                 #  so I skip the start and end tokens
@@ -173,7 +174,8 @@ class ProjectionDataset(IterableDataset[ProjectionData]):
                 data: "ProjectionData" = {
                     # Encoder data (protein):
                     "protein_embeddings": protein_embeddings,
-                    
+                    "protein_padding_mask": protein_padding_mask,
+
                     # Decoder data (synthetic pathway):
                     "token_types": token_types,
                     "rxn_indices": rxn_indices,
