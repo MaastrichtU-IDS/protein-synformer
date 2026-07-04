@@ -77,6 +77,15 @@ coverage data), `config/wandb.yml`.
   (178M): full-FT 0.56 s/step (len 512) to 0.74 s (len 2010); last-4 0.44-0.68 s; peak
   memory <=11 GB (128 GB available). A 28k-step run = ~3.4-5.8 h. GPU sampling/retrieval
   also MPS-enabled (matmul fingerprint retrieval). No external GPU needed for SP2.
+- **Real train.py path VALIDATED on MPS** (`scripts/validate_train.py`, fast_dev_run):
+  ProjectionDataModule loads the real data (182129 pairs / 4973 embeddings / 70936
+  pathways), SynformerWrapper runs a train + val step on MPS (val/loss computed). The
+  full training entry point works locally end-to-end.
+  Caveat for a FAITHFUL retrain: synthetic_pathways store reactant_indices into the
+  ORIGINAL fpindex ordering; our rebuilt comp_2048 (2025 catalogue) has different
+  ordering, so real fine-tuning needs the exact index that generated the pathways
+  (validation used approximate pairs = papyrus_selection_182129.csv, which is fine to
+  exercise the machinery but not for a faithful run).
 - Redundant: `data/processed/comp_hf/` (removed) — our rebuilt comp_2048 works.
 - Pending: exact test split for exact-match numbers; loss curves (Figs 5-7, need
   TensorBoard logs or retrain); model-size Small-vs-Big comparison.
