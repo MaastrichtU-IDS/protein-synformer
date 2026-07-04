@@ -1,4 +1,6 @@
 """Deterministic, protein-disjoint train/val/test split for SP2 fair comparison."""
+import os
+
 import click
 import pandas as pd
 
@@ -14,9 +16,10 @@ def split_targets(target_ids):
 
 
 @click.command()
-@click.option("--src", default=SRC)
-@click.option("--out-dir", default="data/protein_molecule_pairs")
+@click.option("--src", default=SRC, type=click.Path(exists=True), help="Papyrus selection CSV with SMILES,target_id columns")
+@click.option("--out-dir", default="data/protein_molecule_pairs", help="Directory to write sp2_{train,val,test}.csv")
 def main(src, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
     df = pd.read_csv(src)
     train, val, test = split_targets(df["target_id"].tolist())
     for name, tset in [("train", train), ("val", val), ("test", test)]:
