@@ -15,9 +15,17 @@ from scripts.affinity_controls import derangement
 from synformer.eval.affinity import load_scorer, predict_affinity
 
 
+def _rankdata(a):
+    # average ranks, tie-aware (so constant input -> zero variance)
+    a = np.asarray(a, float)
+    uniq, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
+    csum = np.cumsum(counts)
+    avg_rank = csum - counts / 2 + 0.5  # 1-based average rank per unique value
+    return avg_rank[inv]
+
+
 def spearman(x, y):
-    x, y = np.asarray(x, float), np.asarray(y, float)
-    rx, ry = x.argsort().argsort().astype(float), y.argsort().argsort().astype(float)
+    rx, ry = _rankdata(x), _rankdata(y)
     rx, ry = rx - rx.mean(), ry - ry.mean()
     denom = np.sqrt((rx**2).sum() * (ry**2).sum())
     return float((rx * ry).sum() / denom) if denom else 0.0
