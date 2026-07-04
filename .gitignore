@@ -178,3 +178,5 @@ logs_*/
 logs_*.txt
 .superpowers/
 .venv-boltz/
+boltz_in/
+boltz_out/
