@@ -28,3 +28,14 @@ def test_protein_transformer_shapes_and_mask():
     assert out.code.shape == (2, 5, 32)
     assert out.code_padding_mask.shape == (2, 5)
     assert bool(out.code_padding_mask[1, 4])   # padding preserved
+
+
+def test_protein_intermediate_returns_latent_mask():
+    enc = get_encoder("protein_intermediate", {
+        "d_model": 32, "d_protein": 1152, "nhead": 4,
+        "dim_feedforward": 64, "num_layers": 1, "num_latents": 8,
+    })
+    out = enc(_batch(B=2, L=5))
+    assert out.code.shape == (2, 8, 32)          # (B, num_latents, d_model)
+    assert out.code_padding_mask.shape == (2, 8)
+    assert not out.code_padding_mask.any()       # latents are never padding

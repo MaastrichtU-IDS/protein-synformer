@@ -55,10 +55,8 @@ class ProteinIntermediateEncoder(BaseEncoder):
 
         projected_embeddings = self.proj(protein_embeddings)
 
-        latents = self.latents.unsqueeze(0).expand(bsz, -1, -1)  # add batch dimension 
-        code = self.enc(tgt=latents, memory=projected_embeddings)  
-
-        # code_padding_mask = torch.zeros([bsz, 0], dtype=torch.bool, device=device)
-        code_padding_mask = None
-
+        latents = self.latents.unsqueeze(0).expand(bsz, -1, -1)
+        mask = batch.get("protein_padding_mask", None)  # (B, L) True = pad
+        code = self.enc(tgt=latents, memory=projected_embeddings, memory_key_padding_mask=mask)
+        code_padding_mask = torch.zeros(bsz, latents.size(1), dtype=torch.bool, device=code.device)
         return EncoderOutput(code, code_padding_mask)
