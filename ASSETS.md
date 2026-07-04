@@ -1,0 +1,49 @@
+# Assets catalogue
+
+Status of every data/weight artifact prot2drug needs. `data/**` is gitignored;
+this file is the source of truth. The heavy artifacts live in a single store at
+`~/code/prot2drug/data/` (12 GB) and are **symlinked** into the paths the code
+expects under `protein-synformer/data/` (no duplication).
+
+## Present (provided by the team, wired via symlinks 2026-07-04)
+| Expected path (under protein-synformer/data/) | Source file in ~/code/prot2drug/data/ |
+|---|---|
+| trained_weights/epoch=23-step=28076.ckpt (861M) | trained_weights/4-6-2025/epoch=23-step=28076.ckpt |
+| trained_weights/sf_ed_default.ckpt (2.6G) | trained_weights/sf_ed_default-003.ckpt |
+| trained_weights/big_pretrained_last4.ckpt (1.6G) | "trained_weights/_Big_ + Pretrained Weights + Last 4/last.ckpt" |
+| protein_embeddings/embeddings_selection_float16_4973.pth (6.1G) | embeddings_selection_float16_4973-001.pth |
+| synthetic_pathways/filtered_pathways_370000.pth | synthetic_pathways/filtered_pathways_370000.pth |
+| building_blocks/Enamine_..._253345cmpd_20250212.sdf (428M) | same (2025 catalogue; see note) |
+| evaluations/epoch=23-step=28076/infos_2025-06-11_09-12-36.pkl | infos_2025-06-11_09-12-36.pkl (saved generations, 300 proteins) |
+
+Also in the store (not yet wired): papyrus full sets + selections
+(`papyrus_selection_{123236,182129}.csv`), extra pathways (105000/290000/5),
+256-bit index (`pkl-files-256bit/`), PDB files (`put in data-/`),
+`synformer_ligands_test_v2025-04-02.csv` (SynFormer projection output → Fig-4
+coverage data), `config/wandb.yml`.
+
+## In-repo (committed) fixtures
+- data/rxn_templates/comprehensive.txt
+- data/enamine_smiles_1k.txt, data/chembl_filtered_1k.txt (smoke)
+- data/*_mini.* toy embeddings/pairs/pathways
+- data/other/aa_seq_test.csv — cached AA sequences for test proteins (affinity eval)
+
+## GAPS / caveats
+- **comp_2048 index MISSING.** The trained model (`hparams.yaml`) uses 2048-bit
+  Morgan and expects `data/processed/comp_2048/{fpindex,matrix}.pkl`. The provided
+  256-bit index is dimensionally incompatible (head predicts a 2048-bit fp).
+  → regenerate from the Enamine SDF (`scripts/preprocess.py` with morgan_n_bits=2048)
+  or fetch from HF `whgao/synformer`. Needed only to **re-sample**; NOT needed to
+  recompute similarity from the saved `infos` pickle.
+- **Exact split files** (`papyrus_{train_155187,val_19399,test_19399}.csv`) not
+  provided by those names. `papyrus_selection_182129.csv` covers 294/300 eval
+  targets and was used as ground truth for the Table III reproduction below.
+- **Enamine version drift:** provided catalogue is 253,345 cmpd (2025-02-12); the
+  study used 223,244 cmpd (2023-10-01). Regenerated indices will differ slightly.
+
+## Reproduction status
+- **Table III (similarity) — REPRODUCED (2026-07-04)** from the saved `infos` +
+  `papyrus_selection_182129.csv`, no retraining/GPU:
+  best-per-(protein,molecule): mean 0.1797 / median 0.1724 (report `last1`: 0.1832 / 0.1733).
+- Pending: re-sample from `epoch=23-step=28076.ckpt` (needs comp_2048 index) to close
+  the loop end-to-end; obtain exact test split for exact-match numbers; Fig-4 coverage.
