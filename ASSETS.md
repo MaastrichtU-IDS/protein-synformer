@@ -64,6 +64,12 @@ coverage data), `config/wandb.yml`.
   best generated vs best known ligand (pKd): 12.78 vs 10.92; 70.6% of proteins have a
   generated molecule >= best known ligand; 12% of all generations beat the best known
   ligand. Proxy scorer, not experimental — directional evidence for the abstract's claim.
-- Redundant: `data/processed/comp_hf/` (HF index) — not needed; our rebuilt comp_2048 works.
-- Pending: exact test split for exact-match numbers; Fig-4 coverage
-  (data present: `synformer_ligands_test_v2025-04-02.csv`); notrain baseline; loss curves.
+- **Fig-4 REAL-space coverage — REPRODUCED (2026-07-04)** via `scripts/reproduce_coverage.py`
+  on `synformer_ligands_test_v2025-04-02.csv` (3090 ligands, ~1.5 tries each):
+  19.2% exact REAL-space matches (report: ~20% at 8 tries, ~22% at 16).
+- **notrain baseline (Table III col 1)** — `scripts/sample_notrain.py` builds the baseline
+  (pretrained decoder+heads, reinit cross-attn, untrained protein encoder) and samples;
+  running on a 60-protein subset to estimate the ~0.154 baseline similarity.
+- Redundant: `data/processed/comp_hf/` (removed) — our rebuilt comp_2048 works.
+- Pending: exact test split for exact-match numbers; loss curves (Figs 5-7, need
+  TensorBoard logs or retrain); model-size Small-vs-Big comparison.
