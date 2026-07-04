@@ -4,6 +4,7 @@ from .smiles import SMILESEncoder
 from .protein import ProteinEncoder
 from .protein_intermediate import ProteinIntermediateEncoder
 from .protein_masked import ProteinMaskedEncoder
+from .protein_transformer import ProteinTransformerEncoder
 
 
 def get_encoder(t: str, cfg) -> BaseEncoder:
@@ -17,6 +18,8 @@ def get_encoder(t: str, cfg) -> BaseEncoder:
         return ProteinIntermediateEncoder(**cfg)
     elif t == "protein_masked":
         return ProteinMaskedEncoder(**cfg)
+    elif t == "protein_transformer":
+        return ProteinTransformerEncoder(**cfg)
     elif t == "none":
         return NoEncoder(**cfg)
     else:
