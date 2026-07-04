@@ -47,7 +47,17 @@ regardless of which protein they're scored against, and the two scorers barely c
 with each other. Sequence-based DTI proxies (DeepPurpose) cannot measure target-specific
 affinity for this task. The corrective finding from Section 1 is robust.
 
-## 3. Docking cross-check — the only remaining target-specific route (structure-based); optional/heavy
+## 3. Boltz-2 structure-based pilot (2026-07-04) — RUNNING
+Literature scan (`docs/AFFINITY_TOOLS_RESEARCH.md`) identified Boltz-2 (MIT, open weights,
+structure-based affinity head) as the best available target-specific option; classic
+docking (Vina) is weak and gnina needs CUDA. Boltz-2 installed in isolated `.venv-boltz`;
+CLI is **CPU-only on this Mac** (no mps accelerator exposed). Smoke (1 protein, 114 aa):
+works, produced affinity (pred_value 1.008 log10 IC50 uM, prob_binary 0.203), but **~55
+min/run on CPU**. Pilot (`scripts/boltz_pilot.py`): 3 short proteins x {gen_correct,
+gen_mismatch, known_correct} = 9 runs (~7-8 h). Decisive test = gen_correct vs
+gen_mismatch (is Boltz-2 target-sensitive where DeepPurpose was blind?). CAVEAT: 3-4
+proteins is illustrative, not statistically powered (CPU cost precludes more).
+
 ## 4. Guided sampling — dropped (no target-sensitive proxy to guide by)
 
 ## Overall verdict (affinity axis)
