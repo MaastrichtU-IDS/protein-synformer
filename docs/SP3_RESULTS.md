@@ -30,6 +30,30 @@ by molecule-level features the DAVIS-trained DTI model rewards regardless of the
 - Priority shifts to: does ANY proxy show target-specificity? -> second DTI scorer
   (Task 2) and, decisively, docking (Task 3).
 
-## 2. Second scorer — pending
-## 3. Docking cross-check — pending (now higher priority)
-## 4. Guided sampling — deferred pending a target-sensitive scorer
+## 2. Second scorer (2026-07-04) — artifact is GENERAL across DTI proxies
+
+`scripts/affinity_agreement.py`, 194 proteins, seed 42.
+
+| scorer | pct_beats_real | pct_beats_mismatch |
+|---|---|---|
+| MPNN_CNN_DAVIS | 70.6% | 70.6% (identical) |
+| MPNN_CNN_BindingDB | 67.0% | 64.9% (~2 pp) |
+
+Per-protein Spearman(best-generated affinity) between the two scorers: **0.345** (weak).
+
+**Interpretation:** BindingDB is also ~protein-blind (real vs mismatch differ by ~2 pp,
+within noise). Both proxies say the molecules beat the native ligand ~65-70% of the time
+regardless of which protein they're scored against, and the two scorers barely correlate
+with each other. Sequence-based DTI proxies (DeepPurpose) cannot measure target-specific
+affinity for this task. The corrective finding from Section 1 is robust.
+
+## 3. Docking cross-check — the only remaining target-specific route (structure-based); optional/heavy
+## 4. Guided sampling — dropped (no target-sensitive proxy to guide by)
+
+## Overall verdict (affinity axis)
+The study's "higher-affinity candidates" claim is **not supported** by available proxy
+scorers, and this is a robust, corrective methodological finding. "Effectiveness" should
+rest on the defensible metrics — max-Tanimoto similarity to known ligands (Table III),
+synthesizability (SA ~2.4), novelty/diversity — plus the SP2 encoder-architecture
+comparison. Structure-based docking is the only path to a target-specific affinity signal
+and is optional given its setup cost.
