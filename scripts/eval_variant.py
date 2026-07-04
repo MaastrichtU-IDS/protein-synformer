@@ -1,5 +1,5 @@
 """Sample a trained variant on the SP2 test proteins and score it with the SP1 harness."""
-import pickle
+import os
 
 import click
 import numpy as np
@@ -26,6 +26,7 @@ def summarize_infos(infos, gt_by_target, repeat):
             mp = Molecule(pred["smiles"])
             best = max((mp.sim(g) for g in gtm), default=0.0)
             sims.append(best)
+    route_lens = syn.route_lengths(infos)
     return {
         "n_proteins": len(infos),
         "validity": gen.validity_rate(infos, repeat),
@@ -35,7 +36,7 @@ def summarize_infos(infos, gt_by_target, repeat):
         "internal_diversity": gen.per_target_internal_diversity(infos),
         "scaffold_diversity": gen.scaffold_diversity(all_mols),
         "mean_sa": syn.mean_sa_score(all_mols),
-        "route_len_mean": float(np.mean(syn.route_lengths(infos))) if all_smiles else 0.0,
+        "route_len_mean": float(np.mean(route_lens)) if route_lens else 0.0,
     }
 
 
@@ -65,7 +66,7 @@ def main(variant, checkpoint, pairs, n_proteins, repeat, seed, device, out):
 
     row = {"variant": variant, **summarize_infos(infos, gt_by_target, repeat)}
     print(row)
-    hdr = not __import__("os").path.exists(out)
+    hdr = not os.path.exists(out)
     pd.DataFrame([row]).to_csv(out, mode="a", header=hdr, index=False)
     print(f"appended to {out}")
 
