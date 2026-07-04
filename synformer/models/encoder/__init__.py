@@ -3,6 +3,7 @@ from .graph import GraphEncoder
 from .smiles import SMILESEncoder
 from .protein import ProteinEncoder
 from .protein_intermediate import ProteinIntermediateEncoder
+from .protein_masked import ProteinMaskedEncoder
 
 
 def get_encoder(t: str, cfg) -> BaseEncoder:
@@ -14,6 +15,8 @@ def get_encoder(t: str, cfg) -> BaseEncoder:
         return ProteinEncoder(**cfg)
     elif t == "protein_intermediate":
         return ProteinIntermediateEncoder(**cfg)
+    elif t == "protein_masked":
+        return ProteinMaskedEncoder(**cfg)
     elif t == "none":
         return NoEncoder(**cfg)
     else:
