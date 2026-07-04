@@ -81,11 +81,18 @@ coverage data), `config/wandb.yml`.
   ProjectionDataModule loads the real data (182129 pairs / 4973 embeddings / 70936
   pathways), SynformerWrapper runs a train + val step on MPS (val/loss computed). The
   full training entry point works locally end-to-end.
-  Caveat for a FAITHFUL retrain: synthetic_pathways store reactant_indices into the
-  ORIGINAL fpindex ordering; our rebuilt comp_2048 (2025 catalogue) has different
-  ordering, so real fine-tuning needs the exact index that generated the pathways
-  (validation used approximate pairs = papyrus_selection_182129.csv, which is fine to
-  exercise the machinery but not for a faithful run).
-- Redundant: `data/processed/comp_hf/` (removed) — our rebuilt comp_2048 works.
+  Index consistency for a faithful retrain is now RESOLVED (see canonical index above):
+  use comp_2048 -> HF index. (validate_train used approximate pairs =
+  papyrus_selection_182129.csv, fine to exercise the machinery but not for a faithful run;
+  a faithful run also wants the exact papyrus_train_155187/val_19399 split files.)
+- **CANONICAL INDEX RESOLVED (verified `scripts/verify_pathway_index.py`).** The
+  synthetic pathways were generated against the **HF `whgao/synformer` index (211,220
+  building blocks)**: replaying 300 pathways through it reconstructs the target molecule
+  at mean sim 0.977 (276/300 exact). The 2025-SDF rebuild (238,536) is wrong-ordering
+  (mean sim 0.090, 0/300 exact) and must NOT be used for training or faithful sampling.
+  `data/processed/comp_hf/` holds the HF index; `data/processed/comp_2048/` now symlinks
+  to it (so checkpoints/configs that reference comp_2048 automatically use the correct
+  index). Max reactant_index in pathways = 211,200, consistent with 211,220.
+  → **All training/sampling experiments are now unblocked with the correct index.**
 - Pending: exact test split for exact-match numbers; loss curves (Figs 5-7, need
   TensorBoard logs or retrain); model-size Small-vs-Big comparison.
