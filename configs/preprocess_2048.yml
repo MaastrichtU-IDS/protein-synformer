@@ -1,0 +1,13 @@
+# Preprocess config to (re)build the 2048-bit building-block index + reaction
+# matrix the trained model expects (data/processed/comp_2048/*).
+# Uses the provided 2025 Enamine catalogue (253,345 cmpd) — note: the study used
+# the 2023 catalogue (223,244 cmpd), so regenerated indices differ slightly.
+chem:
+  fp_option:
+    type: morgan
+    morgan_radius: 2
+    morgan_n_bits: 2048
+  building_block_path: data/building_blocks/Enamine_Rush-Delivery_Building_Blocks-US_253345cmpd_20250212.sdf
+  reaction_path: data/rxn_templates/comprehensive.txt
+  rxn_matrix: data/processed/comp_2048/matrix.pkl
+  fpindex: data/processed/comp_2048/fpindex.pkl

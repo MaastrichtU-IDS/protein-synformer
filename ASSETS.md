@@ -45,5 +45,17 @@ coverage data), `config/wandb.yml`.
 - **Table III (similarity) — REPRODUCED (2026-07-04)** from the saved `infos` +
   `papyrus_selection_182129.csv`, no retraining/GPU:
   best-per-(protein,molecule): mean 0.1797 / median 0.1724 (report `last1`: 0.1832 / 0.1733).
-- Pending: re-sample from `epoch=23-step=28076.ckpt` (needs comp_2048 index) to close
-  the loop end-to-end; obtain exact test split for exact-match numbers; Fig-4 coverage.
+- **Evaluation harness — DONE** (`synformer/eval/`, `scripts/run_eval.py`). On the saved
+  300-protein eval: validity 0.442, uniqueness 0.736, novelty(vs known ligands) 0.949,
+  per-protein internal diversity 0.809, scaffold diversity 0.471, mean SA 2.42 (easy to
+  synthesize), route length mean 1.71 / max 5.
+- **End-to-end generate pipeline — RUNS** (model loads: 192.8M params; 23-step decode).
+- **CAVEAT — faithful re-sampling needs the EXACT original index.** The comp_2048 index
+  regenerated from the 2025 Enamine catalogue (238,536 blocks) badly degrades
+  reconstruction: target P56528_WT went from 95/100 valid (saved infos) to 1/32 on
+  re-sample. Cause: catalogue drift (2025 vs the study's 2023 223,244-block set) breaks
+  the learned fingerprint→building-block retrieval. To re-sample faithfully we need the
+  original `data/processed/comp_2048/{fpindex,matrix}.pkl` (or the 2023 SDF), or the
+  matching index from HF `whgao/synformer`.
+- Pending: exact original index (above); exact test split for exact-match numbers; Fig-4
+  coverage (data present: `synformer_ligands_test_v2025-04-02.csv`); affinity via DeepPurpose.
