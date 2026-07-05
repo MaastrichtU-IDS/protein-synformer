@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from synformer.data.common import ProjectionBatch
@@ -19,6 +20,9 @@ class ProteinMaskedEncoder(BaseEncoder):
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, d_model),
         )
+        # Start "quiet" (~baseline encoder output scale) so a warm-started decoder begins
+        # near pretrained-good behavior and learns conditioning gradually (see transformer enc).
+        self.out_gate = nn.Parameter(torch.tensor(0.05))
 
     @property
     def dim(self) -> int:
@@ -27,5 +31,5 @@ class ProteinMaskedEncoder(BaseEncoder):
     def forward(self, batch: ProjectionBatch) -> EncoderOutput:
         if "protein_embeddings" not in batch:
             raise ValueError("protein_embeddings must be in batch")
-        code = self.enc(batch["protein_embeddings"])
+        code = self.out_gate * self.enc(batch["protein_embeddings"])
         return EncoderOutput(code, batch.get("protein_padding_mask", None))

@@ -33,11 +33,14 @@ class ProteinIntermediateEncoder(BaseEncoder):
             ),
             num_layers=num_layers,
             norm=(
-                nn.LayerNorm(d_model) 
-                if output_norm 
+                nn.LayerNorm(d_model)
+                if output_norm
                 else None
             )
         )
+        # Start "quiet" so a warm-started decoder begins near pretrained-good behavior
+        # and learns protein conditioning gradually (see protein_transformer encoder).
+        self.out_gate = nn.Parameter(torch.tensor(0.05))
 
     @property
     def dim(self) -> int:
@@ -53,6 +56,6 @@ class ProteinIntermediateEncoder(BaseEncoder):
 
         latents = self.latents.unsqueeze(0).expand(bsz, -1, -1)
         mask = batch.get("protein_padding_mask", None)  # (B, L) True = pad
-        code = self.enc(tgt=latents, memory=projected_embeddings, memory_key_padding_mask=mask)
+        code = self.out_gate * self.enc(tgt=latents, memory=projected_embeddings, memory_key_padding_mask=mask)
         code_padding_mask = torch.zeros(bsz, latents.size(1), dtype=torch.bool, device=code.device)
         return EncoderOutput(code, code_padding_mask)

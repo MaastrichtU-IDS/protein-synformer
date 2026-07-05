@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from synformer.data.common import ProjectionBatch
@@ -22,6 +23,10 @@ class ProteinTransformerEncoder(BaseEncoder):
             layer, num_layers=num_layers,
             norm=nn.LayerNorm(d_model) if output_norm else None, enable_nested_tensor=False,
         )
+        # Start "quiet" (~baseline linear encoder's output scale, std ~0.03) so a warm-started
+        # decoder begins near its pretrained-good behavior and learns protein conditioning
+        # gradually, instead of blasting the pretrained heads to chance at step 0.
+        self.out_gate = nn.Parameter(torch.tensor(0.05))
 
     @property
     def dim(self) -> int:
@@ -31,5 +36,5 @@ class ProteinTransformerEncoder(BaseEncoder):
         if "protein_embeddings" not in batch:
             raise ValueError("protein_embeddings must be in batch")
         mask = batch.get("protein_padding_mask", None)  # (B, L) True = pad
-        code = self.enc(self.proj(batch["protein_embeddings"]), src_key_padding_mask=mask)
+        code = self.out_gate * self.enc(self.proj(batch["protein_embeddings"]), src_key_padding_mask=mask)
         return EncoderOutput(code, mask)

@@ -39,3 +39,15 @@ def test_protein_intermediate_returns_latent_mask():
     assert out.code.shape == (2, 8, 32)          # (B, num_latents, d_model)
     assert out.code_padding_mask.shape == (2, 8)
     assert not out.code_padding_mask.any()       # latents are never padding
+
+
+def test_richer_encoders_start_quiet():
+    # output gate (init ~0.05) keeps initial code near baseline scale for warm-start stability
+    for t, cfg in [
+        ("protein_transformer", {"d_model": 32, "d_protein": 1152, "nhead": 4, "dim_feedforward": 64, "num_layers": 1}),
+        ("protein_masked", {"d_model": 32, "d_protein": 1152, "hidden_dim": 64}),
+        ("protein_intermediate", {"d_model": 32, "d_protein": 1152, "nhead": 4, "dim_feedforward": 64, "num_layers": 1, "num_latents": 8}),
+    ]:
+        enc = get_encoder(t, cfg)
+        out = enc(_batch(B=2, L=5))
+        assert float(out.code.abs().max()) < 0.5, f"{t} not quiet at init: {float(out.code.abs().max())}"
