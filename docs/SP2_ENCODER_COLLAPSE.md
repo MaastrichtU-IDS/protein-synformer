@@ -45,3 +45,13 @@ Isolate the optimization lever, one at a time, on the `transformer` arm:
 4. **More steps** (30-50k) — if it's purely budget.
 Success = train loss_token approaching baseline (~1e-2 or better) and non-degenerate
 generation (route_len > 1, uniqueness > 0.5).
+
+## RESOLVED (2026-07-05): near-zero output gate
+Fixes 1-2 (lr 1e-4, reinit:false) FAILED — corrected transformer stayed stuck at chance
+(~1.4) like the collapsed run. Fix 3 — a ReZero-style output gate (init 0.05) on the richer
+encoders so their initial code matches baseline scale (std 0.03-0.06 vs 0.6-1.1) — WORKS:
+gated transformer train/loss_token starts at 0.475 (not 39000) and reaches ~0.04 by step 500
+(collapsed run: stuck ~1.3-1.4). Root cause confirmed: large encoder output at init knocked
+the warm-started decoder's token head to chance; starting quiet lets conditioning grow
+gradually. Fair 4-way now uses the ORIGINAL sp2_*.yml configs (gate is the only encoder
+change); baseline unchanged (no gate needed).
