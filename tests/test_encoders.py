@@ -51,3 +51,12 @@ def test_richer_encoders_start_quiet():
         enc = get_encoder(t, cfg)
         out = enc(_batch(B=2, L=5))
         assert float(out.code.abs().max()) < 0.5, f"{t} not quiet at init: {float(out.code.abs().max())}"
+
+
+def test_emit_mask_flag_isolation():
+    b = _batch(B=2, L=5)
+    assert get_encoder("protein", {"d_model": 32, "d_protein": 1152})(b).code_padding_mask is None
+    lm = get_encoder("protein", {"d_model": 32, "d_protein": 1152, "emit_mask": True})(b).code_padding_mask
+    assert lm is not None and lm.shape == (2, 5)
+    mn = get_encoder("protein_masked", {"d_model": 32, "d_protein": 1152, "hidden_dim": 64, "emit_mask": False})(b)
+    assert mn.code_padding_mask is None

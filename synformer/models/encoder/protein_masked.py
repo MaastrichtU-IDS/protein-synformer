@@ -10,9 +10,10 @@ class ProteinMaskedEncoder(BaseEncoder):
     cross-attention ignores zero-padded residues (the plain ProteinEncoder does not)."""
 
     def __init__(self, d_model: int = 768, d_protein: int = 1152,
-                 hidden_dim: int = 2048, dropout: float = 0.1):
+                 hidden_dim: int = 2048, dropout: float = 0.1, emit_mask: bool = True):
         super().__init__()
         self._dim = d_model
+        self._emit_mask = emit_mask
         self.enc = nn.Sequential(
             nn.Linear(d_protein, hidden_dim),
             nn.GELU(),
@@ -32,4 +33,5 @@ class ProteinMaskedEncoder(BaseEncoder):
         if "protein_embeddings" not in batch:
             raise ValueError("protein_embeddings must be in batch")
         code = self.out_gate * self.enc(batch["protein_embeddings"])
-        return EncoderOutput(code, batch.get("protein_padding_mask", None))
+        mask = batch.get("protein_padding_mask", None) if self._emit_mask else None
+        return EncoderOutput(code, mask)
