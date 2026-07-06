@@ -8,3 +8,4 @@ def test_prepare_target_writes_receptor_and_ligand(tmp_path):
     assert os.path.getsize(spec.ref_ligand_path) > 0
     # receptor has protein atoms, ref ligand has the small molecule
     assert open(spec.receptor_path).read().count("ATOM") > 100
+    assert "HETATM" in open(spec.ref_ligand_path).read()

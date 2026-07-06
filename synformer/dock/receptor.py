@@ -97,9 +97,15 @@ def prepare_target(
             + (f" chain {chain}" if chain else "")
         )
 
-    # Use the first occurrence of this residue (lowest res_id)
+    # Use the first physical residue — uniquely identified by (chain_id, res_id).
+    # Filtering on res_id alone is insufficient: in multi-copy crystal structures
+    # (e.g. 1STP has BTN res_id=300 in all four chains) the same res_id appears in
+    # multiple chains, so the old filter kept atoms from every copy.
+    first_chain_id = str(lig_atoms.chain_id[0])
     first_res_id = int(lig_atoms.res_id[0])
-    lig_atoms = lig_atoms[lig_atoms.res_id == first_res_id]
+    lig_atoms = lig_atoms[
+        (lig_atoms.chain_id == first_chain_id) & (lig_atoms.res_id == first_res_id)
+    ]
 
     ref_ligand_path = os.path.join(out_dir, "ref_ligand.pdb")
     lig_pdb = pdb_io.PDBFile()
