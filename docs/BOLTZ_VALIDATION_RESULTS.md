@@ -61,7 +61,7 @@ Everything ran locally on Apple-Silicon GPU (MPS): 25 Boltz-2 predictions, ~55 s
 | Docking (same 5 hits) normalized | — | — | **−1.743** | **1.00** |
 
 Boltz's own-vs-mismatch delta is essentially zero (−0.04 normalized) and its win-rate is at chance
-(3/5) — **no target-specificity**. For the *identical* molecules, docking shows a strong, consistent
+(normalized 3/5; raw 2/5) — **no target-specificity**. For the *identical* molecules, docking shows a strong, consistent
 own-pocket preference (normalized win 5/5). Only GR and KIT are own-best under Boltz; CA12 and RBP4
 are own-*worst*, and KIT's hit actually scores best in the CA12 pocket (−0.62), not its own (−0.53).
 
@@ -71,7 +71,7 @@ are own-*worst*, and KIT's hit actually scores best in the CA12 pocket (−0.62)
   protein-driven: RBP4's hit reads as a weak binder against *every* protein (0.28–0.58); GR's hit is
   uniformly high (0.54–0.73, promiscuous) — patterns reminiscent of a molecule-driven, not
   match-driven, response.
-- **ligand_iptm** — every diagonal is **0.92–0.95** and all 25 cells 0.79–0.97: the complexes folded
+- **ligand_iptm** — every diagonal is **0.92–0.96** and all 25 cells 0.79–0.97: the complexes folded
   **confidently everywhere**. The null is therefore *not* a folding-failure artifact — Boltz produced
   high-confidence poses and still saw no own-pocket affinity preference.
 
