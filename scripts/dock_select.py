@@ -83,6 +83,29 @@ def _load_existing_scores(path: pathlib.Path) -> set[tuple[str, str]]:
     return done
 
 
+def _load_scores_table(path: pathlib.Path) -> dict[tuple[str, str], float]:
+    """Load all (molecule, pocket) → score from the scores CSV into memory.
+
+    Returns an empty dict if the file does not exist.  Only the first
+    occurrence of each (molecule, pocket) pair is kept (matches the
+    append-only CSV semantics where earlier rows win on restart).
+    """
+    table: dict[tuple[str, str], float] = {}
+    if not path.exists():
+        return table
+    with path.open() as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            key = (row["molecule"], row["pocket"])
+            if key not in table:
+                try:
+                    v = float(row["score"])
+                except (ValueError, KeyError):
+                    v = float("nan")
+                table[key] = v
+    return table
+
+
 def _append_score_row(
     fh,
     writer,
@@ -105,9 +128,28 @@ def _append_score_row(
 
 
 def _safe_mean(values: list[float]) -> float:
-    """NaN-safe mean; returns NaN if empty."""
+    """NaN-safe mean; returns NaN if empty or all-NaN."""
     finite = [v for v in values if not math.isnan(v)]
     return float(np.mean(finite)) if finite else float("nan")
+
+
+def select_topm_for_target(scores_by_smiles: dict[str, float], m: int) -> list[str]:
+    """Return the top-M SMILES by lowest (best) docking score, NaN excluded.
+
+    Parameters
+    ----------
+    scores_by_smiles:
+        Mapping SMILES → own-pocket score (may contain NaN).
+    m:
+        Maximum number to select.
+
+    Returns
+    -------
+    List of up to ``m`` SMILES in ascending score order (best first).
+    """
+    finite_pairs = [(smi, sc) for smi, sc in scores_by_smiles.items() if not math.isnan(sc)]
+    finite_pairs.sort(key=lambda x: x[1])
+    return [smi for smi, _ in finite_pairs[:m]]
 
 
 def _stable_seed(seed: int, target_id: str) -> int:
@@ -129,12 +171,17 @@ def _load_known_ligands(target_id: str, n_refs: int, seed: int) -> list[str]:
     return selected, available, k
 
 
-def _load_random_real(n_refs: int, seed: int, fpindex) -> list[str]:
-    """Return n_refs randomly sampled SMILES from the fpindex molecule pool."""
+def _load_random_real(n_refs: int, seed: int, target_idx: int, fpindex) -> list[str]:
+    """Return n_refs randomly sampled SMILES from the fpindex molecule pool.
+
+    Uses a per-target seed so different targets get different random baselines.
+    """
     molecules = fpindex.molecules  # tuple of Molecule objects
     pool_size = len(molecules)
     k = min(n_refs, pool_size)
-    rng = random.Random(seed ^ 0xDEADBEEF)
+    # Per-target seed: mix global seed with target index to avoid identical pools
+    per_target_seed = seed ^ (0xDEADBEEF + target_idx * 0x9E3779B9 & 0xFFFFFFFF)
+    rng = random.Random(per_target_seed)
     indices = rng.sample(range(pool_size), k)
     return [molecules[i].smiles for i in indices]
 
@@ -216,8 +263,9 @@ def main(
     out_dir.mkdir(parents=True, exist_ok=True)
     scores_path = out_dir / "dock_scores.csv"
     summary_path = out_dir / "dock_select_summary.csv"
+    mismatch_path = out_dir / "dock_mismatch_summary.csv"
 
-    dock, prepare_target, select_topm, mismatch_summary = _import_dock()
+    dock, prepare_target, _select_topm_unused, mismatch_summary = _import_dock()
 
     # ── load model / fpindex for random-REAL pool ─────────────────────────────
     log.info("Loading model + fpindex from %s …", MASKED_CKPT)
@@ -233,21 +281,19 @@ def main(
         log.info("--limit-targets %d → processing %d target(s)", limit_targets, len(all_targets))
 
     # ── load or create scores CSV ─────────────────────────────────────────────
+    # D2 fix: check exists BEFORE stat() to avoid FileNotFoundError
     existing_done = _load_existing_scores(scores_path)
     log.info("%d (molecule, pocket) pairs already in %s — will skip", len(existing_done), scores_path)
 
+    # Load entire on-disk scores table into memory once (Perf fix: avoid per-row re-reads)
+    scores_table: dict[tuple[str, str], float] = _load_scores_table(scores_path)
+
     scores_fh = scores_path.open("a", newline="")
     scores_writer = csv.DictWriter(scores_fh, fieldnames=SCORES_COLS)
-    if scores_path.stat().st_size == 0 or not scores_path.exists():
+    # D2 fix: not exists OR size==0 (not the other way around)
+    if not scores_path.exists() or scores_path.stat().st_size == 0:
         scores_writer.writeheader()
         scores_fh.flush()
-    elif not existing_done:
-        # File exists but might have content without header re-written — check
-        with scores_path.open() as chk:
-            first = chk.readline().strip()
-        if first != ",".join(SCORES_COLS):
-            # prepend header — unlikely but safe
-            pass  # header already there or file is new
 
     # Write header if file was just created (size==0 after open in append mode)
     # The open("a") will not truncate; check via tell()
@@ -265,7 +311,7 @@ def main(
     # known counts for summary
     known_counts: dict[str, dict[str, int]] = {}  # target_id → {available, used}
 
-    for tgt in all_targets:
+    for tgt_idx, tgt in enumerate(all_targets):
         target_id: str = tgt["target_id"]
         pdb_id: str = tgt["pdb_id"]
         ligand_resname: str = tgt["ligand_resname"]
@@ -297,7 +343,8 @@ def main(
         candidates = _load_candidates(target_id, n_candidates)
         known_smiles, avail, used = _load_known_ligands(target_id, n_refs, seed)
         known_counts[target_id] = {"available": avail, "used": used}
-        random_smiles = _load_random_real(n_refs, seed, fpindex)
+        # Per-target random pool (minor fix: use tgt_idx to vary seed per target)
+        random_smiles = _load_random_real(n_refs, seed, tgt_idx, fpindex)
 
         log.info(
             "  molecules: %d candidates, %d known (%d available), %d random",
@@ -318,81 +365,52 @@ def main(
             "known": [],
             "random": [],
         }
-        # candidate_scores_with_smiles: list[(smiles, score)] for top-M selection
-        candidate_scores_with_smiles: list[tuple[str, float]] = []
 
         for smi, source in molecule_batches:
             pair_key = (smi, pocket_id)
             if pair_key in existing_done:
                 log.debug("  skip already-scored: %s in %s", smi[:40], pocket_id)
-                # Still need the score for aggregation — reload from disk is
-                # expensive; we treat skipped rows as needing re-load.
-                # A restart should reload existing scores properly.
+                # Score already in scores_table from the initial load — no re-read needed
                 continue
 
             score = dock(spec, smi, seed=seed)
             if not math.isnan(score):
                 _append_score_row(scores_fh, scores_writer, target_id, pocket_id, smi, source, score)
+                # Update both the in-memory table and the per-source lists
+                scores_table[pair_key] = score
                 scores_by_source[source].append(score)
-                if source == "candidate":
-                    candidate_scores_with_smiles.append((smi, score))
                 existing_done.add(pair_key)
                 log.info("  docked %-10s  score=%.3f  src=%s", smi[:35], score, source)
             else:
                 log.warning("  NaN score for %s (src=%s) — dropped", smi[:40], source)
 
+        # ── fill per_target_scores from authoritative in-memory scores_table ─
+        # This covers both fresh and restart cases uniformly (D1 fix core idea).
+        # For already-scored molecules (skipped above), pull from scores_table.
+        for smi, source in molecule_batches:
+            pair_key = (smi, pocket_id)
+            v = scores_table.get(pair_key, float("nan"))
+            if not math.isnan(v) and v not in scores_by_source[source]:
+                scores_by_source[source].append(v)
+
         per_target_scores[target_id] = scores_by_source
 
-        # ── select top-M candidates ───────────────────────────────────────────
-        if candidate_scores_with_smiles:
-            cand_smiles_list = [x[0] for x in candidate_scores_with_smiles]
-            cand_score_list = [x[1] for x in candidate_scores_with_smiles]
-            m_actual = min(top_m, len(cand_smiles_list))
-            top_indices = select_topm(cand_score_list, m_actual)
-            top_m_smiles[target_id] = [cand_smiles_list[i] for i in top_indices]
-            log.info(
-                "  top-%d selected (best score=%.3f)",
-                m_actual,
-                min(cand_score_list[i] for i in top_indices),
-            )
-        else:
-            top_m_smiles[target_id] = []
-            log.warning("  No finite candidate scores for %s", target_id)
+        # ── select top-M candidates (D1 fix) ─────────────────────────────────
+        # Build the complete own-pocket scores dict from the authoritative
+        # in-memory table, covering BOTH freshly-docked and already-on-disk rows.
+        own_pocket_scores: dict[str, float] = {}
+        for smi in candidates:
+            pair_key = (smi, pocket_id)
+            v = scores_table.get(pair_key, float("nan"))
+            own_pocket_scores[smi] = v
 
-    # ── if we have scores from a prior run (restart), re-load for aggregation ─
-    # Re-read the entire scores CSV to build per_target_scores and top_m_smiles
-    # for targets where we skipped all pairs (already done).
-    if scores_path.exists():
-        log.info("Re-reading %s to fill aggregation for restarted targets …", scores_path)
-        df_scores = pd.read_csv(scores_path)
-        # For any target in our run that has no in-memory scores, try to fill from disk.
-        for tgt in all_targets:
-            target_id = tgt["target_id"]
-            if target_id not in per_target_scores:
-                continue
-            for source in ["candidate", "known", "random"]:
-                if per_target_scores[target_id][source]:
-                    continue  # already populated in-memory
-                sub = df_scores[
-                    (df_scores["target"] == target_id)
-                    & (df_scores["pocket"] == target_id)
-                    & (df_scores["source"] == source)
-                ]["score"]
-                per_target_scores[target_id][source] = sub.dropna().tolist()
-            # Rebuild top_m_smiles if not yet populated
-            if target_id not in top_m_smiles or not top_m_smiles.get(target_id):
-                sub_cand = df_scores[
-                    (df_scores["target"] == target_id)
-                    & (df_scores["pocket"] == target_id)
-                    & (df_scores["source"] == "candidate")
-                ][["molecule", "score"]].dropna()
-                if not sub_cand.empty:
-                    cand_list = list(zip(sub_cand["molecule"], sub_cand["score"]))
-                    cand_smiles_list = [x[0] for x in cand_list]
-                    cand_score_list = [x[1] for x in cand_list]
-                    m_actual = min(top_m, len(cand_smiles_list))
-                    top_indices = select_topm(cand_score_list, m_actual)
-                    top_m_smiles[target_id] = [cand_smiles_list[i] for i in top_indices]
+        selected = select_topm_for_target(own_pocket_scores, top_m)
+        top_m_smiles[target_id] = selected
+        if selected:
+            best = min(own_pocket_scores[s] for s in selected if not math.isnan(own_pocket_scores[s]))
+            log.info("  top-%d selected (best score=%.3f)", len(selected), best)
+        else:
+            log.warning("  No finite candidate scores for %s", target_id)
 
     # ── mismatch-control cross-docking ────────────────────────────────────────
     successful_targets = [
@@ -415,28 +433,16 @@ def main(
             for j, target_j in enumerate(successful_targets):
                 spec_j = spec_cache[target_j]
 
-                # Diagonal: already scored in own pocket — take best of known scores
+                # D3 fix: diagonal uses the SAME fixed cands_i molecule set.
+                # Look up their own-pocket scores from the authoritative scores_table.
                 if i == j:
-                    own_scores_cand = per_target_scores.get(target_i, {}).get("candidate", [])
-                    # We want the best score among top_m_smiles in target_j's pocket
-                    # (already done in main loop — re-use those scores)
-                    # For the matrix: best selected score in its own pocket
-                    if own_scores_cand:
-                        # The top_m were selected from these; their min score is already best
-                        # Re-compute: take scores of cands_i from own_scores_cand (index-aligned)
-                        # Since scores are collected in order, and top_m_smiles are the best,
-                        # the diagonal entry is the mean of top_m in own pocket.
-                        # Use existing per_target score list for the own pocket.
-                        # For simplicity: best score across the top-M in own pocket
-                        # (approximated as the minimum candidate score — exact if top_m chosen by score)
-                        m_actual = len(cands_i)
-                        all_cand_scores = per_target_scores[target_i]["candidate"]
-                        if len(all_cand_scores) >= m_actual:
-                            top_m_idx = select_topm(all_cand_scores, m_actual)
-                            diag_val = min(all_cand_scores[k] for k in top_m_idx)
-                        else:
-                            diag_val = _safe_mean(all_cand_scores)
-                        mismatch_matrix_data[(target_i, target_j)] = diag_val
+                    own_scores_cands_i = [
+                        scores_table.get((smi, target_i), float("nan"))
+                        for smi in cands_i
+                    ]
+                    finite_own = [v for v in own_scores_cands_i if not math.isnan(v)]
+                    diag_val = min(finite_own) if finite_own else float("nan")
+                    mismatch_matrix_data[(target_i, target_j)] = diag_val
                     continue
 
                 # Off-diagonal: dock target_i's top-M into target_j's pocket
@@ -444,16 +450,10 @@ def main(
                 for smi in cands_i:
                     pair_key = (smi, target_j)
                     if pair_key in existing_done:
-                        # Load from disk
-                        if scores_path.exists():
-                            df_tmp = pd.read_csv(scores_path)
-                            sub = df_tmp[
-                                (df_tmp["molecule"] == smi) & (df_tmp["pocket"] == target_j)
-                            ]["score"]
-                            if not sub.empty:
-                                v = float(sub.iloc[0])
-                                if not math.isnan(v):
-                                    cross_scores.append(v)
+                        # Look up from the in-memory table (Perf fix: no CSV re-read)
+                        v = scores_table.get(pair_key, float("nan"))
+                        if not math.isnan(v):
+                            cross_scores.append(v)
                         continue
                     score = dock(spec_j, smi, seed=seed)
                     if not math.isnan(score):
@@ -461,6 +461,7 @@ def main(
                             scores_fh, scores_writer,
                             target_i, target_j, smi, "candidate", score
                         )
+                        scores_table[pair_key] = score
                         cross_scores.append(score)
                         existing_done.add(pair_key)
                     else:
@@ -480,7 +481,6 @@ def main(
                     mismatch_matrix_data[(target_i, target_j)] = float("nan")
 
         # Build matrix
-        n = len(successful_targets)
         score_matrix = []
         for i, ti in enumerate(successful_targets):
             row = []
@@ -510,7 +510,8 @@ def main(
 
     scores_fh.close()
 
-    # ── write summary CSV ─────────────────────────────────────────────────────
+    # ── write per-target summary CSV ──────────────────────────────────────────
+    # D4 fix: selected_mean uses ONLY the top-M selected candidates' own-pocket scores.
     summary_rows: list[dict] = []
     for tgt in all_targets:
         target_id = tgt["target_id"]
@@ -518,6 +519,13 @@ def main(
             continue
         sc = per_target_scores[target_id]
         kc = known_counts.get(target_id, {"available": 0, "used": 0})
+        # Compute selected_mean from the actual top-M SMILES own-pocket scores
+        pocket_id = target_id
+        topm = top_m_smiles.get(target_id, [])
+        topm_scores = [
+            scores_table.get((smi, pocket_id), float("nan"))
+            for smi in topm
+        ]
         summary_rows.append(
             {
                 "target": target_id,
@@ -525,40 +533,31 @@ def main(
                 "n_known_available": kc["available"],
                 "n_known_used": kc["used"],
                 "n_random_docked": len(sc["random"]),
-                "selected_mean": _safe_mean(sc["candidate"]),
+                "selected_mean": _safe_mean(topm_scores),
                 "known_mean": _safe_mean(sc["known"]),
                 "random_mean": _safe_mean(sc["random"]),
             }
         )
 
-    mm_row: dict = {}
-    if mm_summary is not None:
-        mm_row = {
-            "own_mean": mm_summary["own_mean"],
-            "offdiag_mean": mm_summary["offdiag_mean"],
-            "delta": mm_summary["delta"],
-            "win_rate": mm_summary["win_rate"],
-        }
-
+    # Minor fix: write per-target table and overall mismatch to SEPARATE files
     with summary_path.open("w", newline="") as sfh:
         fieldnames = [
             "target", "n_candidates_docked", "n_known_available", "n_known_used",
             "n_random_docked", "selected_mean", "known_mean", "random_mean",
         ]
-        if mm_summary is not None:
-            fieldnames += ["own_mean", "offdiag_mean", "delta", "win_rate"]
         writer = csv.DictWriter(sfh, fieldnames=fieldnames)
         writer.writeheader()
         for row in summary_rows:
-            if mm_summary is not None:
-                # Only write mm cols on the first row for readability
-                if summary_rows.index(row) == 0:
-                    row.update(mm_row)
             writer.writerow(row)
 
-    log.info("Summary written to %s", summary_path)
-    log.info("Scores written to %s", scores_path)
+    log.info("Per-target summary written to %s", summary_path)
+
     if mm_summary is not None:
+        with mismatch_path.open("w", newline="") as mfh:
+            writer = csv.DictWriter(mfh, fieldnames=["own_mean", "offdiag_mean", "delta", "win_rate"])
+            writer.writeheader()
+            writer.writerow(mm_summary)
+        log.info("Mismatch summary written to %s", mismatch_path)
         log.info(
             "Mismatch: own=%.3f offdiag=%.3f delta=%.3f win_rate=%.2f",
             mm_summary["own_mean"],
@@ -566,6 +565,8 @@ def main(
             mm_summary["delta"],
             mm_summary["win_rate"],
         )
+
+    log.info("Scores written to %s", scores_path)
     log.info("Done.")
 
 
