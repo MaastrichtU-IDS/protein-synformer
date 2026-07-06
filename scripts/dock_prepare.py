@@ -10,7 +10,7 @@ terminal:
              synthesizable candidates from the SP2 `masked` checkpoint, dedup
              valid SMILES, and write data/dock/candidates/<target_id>.txt.
 
-targets.json is written by hand (or by the scan's --write-json helper) after
+targets.json is written by hand (or by the scan's --out flag) after
 reviewing the scan output; generate consumes it.
 
 Run from repo root with `.venv/bin/python scripts/dock_prepare.py <mode> ...`.

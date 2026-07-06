@@ -290,13 +290,9 @@ def main(
 
     scores_fh = scores_path.open("a", newline="")
     scores_writer = csv.DictWriter(scores_fh, fieldnames=SCORES_COLS)
-    # D2 fix: not exists OR size==0 (not the other way around)
-    if not scores_path.exists() or scores_path.stat().st_size == 0:
-        scores_writer.writeheader()
-        scores_fh.flush()
-
-    # Write header if file was just created (size==0 after open in append mode)
-    # The open("a") will not truncate; check via tell()
+    # Write the CSV header exactly once: on a new or empty file.  open("a") does
+    # not truncate, so tell()==0 is the single reliable indicator that nothing has
+    # been written yet (covers both "file did not exist" and "file was empty").
     if scores_fh.tell() == 0:
         scores_writer.writeheader()
         scores_fh.flush()
@@ -385,12 +381,19 @@ def main(
                 log.warning("  NaN score for %s (src=%s) — dropped", smi[:40], source)
 
         # ── fill per_target_scores from authoritative in-memory scores_table ─
+        # Rebuild from scores_table by MOLECULE identity so that two molecules
+        # with the same score are both counted (the old dedup-by-value was a bias
+        # that caused n_known_used / n_random_docked to be under-counted).
         # This covers both fresh and restart cases uniformly (D1 fix core idea).
-        # For already-scored molecules (skipped above), pull from scores_table.
+        scores_by_source = {"candidate": [], "known": [], "random": []}
+        seen: dict[str, set[str]] = {"candidate": set(), "known": set(), "random": set()}
         for smi, source in molecule_batches:
+            if smi in seen[source]:
+                continue
+            seen[source].add(smi)
             pair_key = (smi, pocket_id)
             v = scores_table.get(pair_key, float("nan"))
-            if not math.isnan(v) and v not in scores_by_source[source]:
+            if not math.isnan(v):
                 scores_by_source[source].append(v)
 
         per_target_scores[target_id] = scores_by_source

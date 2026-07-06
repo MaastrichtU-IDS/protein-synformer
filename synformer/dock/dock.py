@@ -69,7 +69,11 @@ def dock(spec: ReceptorSpec, smiles: str, seed: int = 0) -> float:
     smiles:
         SMILES string of the molecule to dock.
     seed:
-        Random seed passed to smina (reproducibility).
+        Random seed passed to smina's stochastic search (``--seed``).
+        Note: this controls only smina's internal search; it does NOT vary
+        the input ligand conformer.  The RDKit conformer is fixed at
+        ETKDG randomSeed=42, so the same SMILES always produces the same
+        3-D starting geometry regardless of ``seed``.
 
     Returns
     -------
