@@ -180,3 +180,4 @@ logs_*.txt
 .venv-boltz/
 boltz_in/
 boltz_out/
+.tools/
