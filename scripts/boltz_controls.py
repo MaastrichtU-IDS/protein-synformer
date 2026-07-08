@@ -9,9 +9,11 @@ cell already present in the scores CSV.
 from __future__ import annotations
 
 import csv
+import glob
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -68,6 +70,54 @@ def _append_row(scores_csv: str, row: dict) -> None:
         fh.flush()
 
 
+def parse_batch_result(batch_results_dir: str, stem: str) -> dict:
+    """Parse one cell's outputs from a batch (directory-input) boltz run, where all records
+    live under a single `boltz_results_<indir>/predictions/<stem>/` tree (vs the per-cell
+    layout `boltz_results_<stem>/...`). Returns affinity_pred/binder_prob/ligand_iptm (NaN if absent)."""
+    nan = float("nan")
+    aff, prob, iptm = nan, nan, nan
+    ap = glob.glob(os.path.join(batch_results_dir, "predictions", stem, f"affinity_{stem}*.json"))
+    if ap:
+        d = json.load(open(sorted(ap)[0]))
+        aff = d.get("affinity_pred_value", nan)
+        prob = d.get("affinity_probability_binary", nan)
+    cp = glob.glob(os.path.join(batch_results_dir, "predictions", stem, f"confidence_{stem}*.json"))
+    if cp:
+        c = json.load(open(sorted(cp)[0]))
+        iptm = c.get("ligand_iptm", c.get("iptm", nan))
+    return {"affinity_pred": aff, "binder_prob": prob, "ligand_iptm": iptm}
+
+
+def _run_batch(cells, out_dir, scores, samples, accelerator, no_kernels, batch_in):
+    """Batch mode: write every not-yet-scored cell's YAML into one input dir and run
+    `boltz predict <dir>` ONCE (single model load; MSA auto-deduped per unique sequence),
+    then parse each cell's output and append. ~6x faster than one subprocess per cell."""
+    pending = [c for c in cells if not cell_done(scores, c["target"], c["smiles"])]
+    if not pending:
+        print("batch: nothing pending — all cells already scored", flush=True)
+        return
+    indir = Path(batch_in)
+    shutil.rmtree(indir, ignore_errors=True)
+    indir.mkdir(parents=True)
+    for c in pending:
+        write_yaml(indir / f"{c['stem']}.yaml", c["sequence"], c["smiles"])
+    print(f"batch: {len(pending)} pending cells -> one boltz run over {indir}/", flush=True)
+    cmd = [BOLTZ, "predict", str(indir), "--use_msa_server", "--accelerator", accelerator,
+           "--out_dir", out_dir, "--output_format", "pdb",
+           "--diffusion_samples_affinity", str(samples)]
+    if no_kernels:
+        cmd.append("--no_kernels")
+    subprocess.run(cmd, check=True)
+    results_dir = os.path.join(out_dir, f"boltz_results_{indir.name}")
+    n_ok = 0
+    for c in pending:
+        r = parse_batch_result(results_dir, c["stem"])
+        if r["affinity_pred"] == r["affinity_pred"]:  # not NaN
+            n_ok += 1
+        _append_row(scores, {"target": c["target"], "smiles": c["smiles"], "class": c["class"], **r})
+    print(f"batch: parsed {n_ok}/{len(pending)} cells with finite affinity -> {scores}", flush=True)
+
+
 @click.command()
 @click.option("--dock-scores", default="data/dock/dock_scores.csv")
 @click.option("--inputs", default="data/boltz/matrix_inputs.json")
@@ -80,13 +130,23 @@ def _append_row(scores_csv: str, row: dict) -> None:
 @click.option("--no-kernels", "no_kernels", is_flag=True, default=False,
               help="pass --no_kernels to boltz (needed on CUDA boxes without a CUDA toolkit / "
                    "cuequivariance+triton kernels; standard PyTorch GPU path).")
-def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap, no_kernels):
+@click.option("--batch", is_flag=True, default=False,
+              help="batch mode: write all pending cells to one input dir and run boltz ONCE over it "
+                   "(single model load instead of one subprocess/cell) — ~6x faster on GPU.")
+@click.option("--batch-in", "batch_in", default="boltz_batch_in",
+              help="input directory for batch mode (basename determines the boltz results dir).")
+def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap, no_kernels,
+         batch, batch_in):
     cells = enumerate_control_cells(dock_scores, inputs, cap=cap)
     if limit is not None:
         cells = cells[:limit]
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs("boltz_in", exist_ok=True)
     os.makedirs(os.path.dirname(scores), exist_ok=True)
+
+    if batch:
+        _run_batch(cells, out_dir, scores, samples, accelerator, no_kernels, batch_in)
+        return
 
     for n, c in enumerate(cells, 1):
         stem = c["stem"]
