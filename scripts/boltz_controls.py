@@ -77,7 +77,10 @@ def _append_row(scores_csv: str, row: dict) -> None:
 @click.option("--accelerator", default="mps")
 @click.option("--limit", default=None, type=int, help="run only the first N cells (dry-run)")
 @click.option("--cap", default=None, type=int, help="max molecules per (target,class) to bound compute")
-def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap):
+@click.option("--no-kernels", "no_kernels", is_flag=True, default=False,
+              help="pass --no_kernels to boltz (needed on CUDA boxes without a CUDA toolkit / "
+                   "cuequivariance+triton kernels; standard PyTorch GPU path).")
+def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap, no_kernels):
     cells = enumerate_control_cells(dock_scores, inputs, cap=cap)
     if limit is not None:
         cells = cells[:limit]
@@ -95,12 +98,12 @@ def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap)
         from scripts.boltz_matrix import _first_json
         if not _first_json(out_dir, stem, "affinity"):
             print(f"[{n}/{len(cells)}] running {stem} ({c['class']}) ...", flush=True)
-            subprocess.run(
-                [BOLTZ, "predict", str(ypath), "--use_msa_server", "--accelerator", accelerator,
-                 "--out_dir", out_dir, "--output_format", "pdb",
-                 "--diffusion_samples_affinity", str(samples)],
-                check=True,
-            )
+            cmd = [BOLTZ, "predict", str(ypath), "--use_msa_server", "--accelerator", accelerator,
+                   "--out_dir", out_dir, "--output_format", "pdb",
+                   "--diffusion_samples_affinity", str(samples)]
+            if no_kernels:
+                cmd.append("--no_kernels")
+            subprocess.run(cmd, check=True)
         r = parse_results(out_dir, stem)
         _append_row(scores, {"target": c["target"], "smiles": c["smiles"], "class": c["class"], **r})
         print(f"[{n}/{len(cells)}] {stem} aff={r['affinity_pred']} prob={r['binder_prob']} "
