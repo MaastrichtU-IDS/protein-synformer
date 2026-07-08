@@ -1,13 +1,13 @@
 """Powered specificity run: crystal + AlphaFold docking arms over ~20 targets, using a
-fixed reference-pocket panel for the mismatch control. Reuses scripts.dock_select helpers
-and synformer.dock. Idempotent/resumable; intended for an in-session background run."""
+full N×N all-pairs matrix (every target's top-M docked into EVERY prepped pocket) for the
+mismatch control. Reuses scripts.dock_select helpers and synformer.dock.
+Idempotent/resumable; intended for an in-session background run."""
 from __future__ import annotations
 
 import csv
 import json
 import os
 import pathlib
-import random
 
 import click
 import pandas as pd
@@ -26,13 +26,6 @@ from scripts.dock_select import (
 from synformer.dock.af_receptor import prepare_af_target
 
 COLUMNS = ["target", "pocket", "molecule", "source", "score"]
-
-
-def choose_panel(target_ids, p: int, seed: int) -> list:
-    rng = random.Random(seed)
-    ts = list(target_ids)
-    rng.shuffle(ts)
-    return sorted(ts[: min(p, len(ts))])
 
 
 def _done_pairs(path: str) -> set:
@@ -69,37 +62,31 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
 @click.option("--targets", default="data/dock/powered_targets.json")
 @click.option("--scores", default="data/dock/dock_scores.csv")
 @click.option("--af-scores", default="data/dock/dock_scores_af.csv")
-@click.option("--panel-out", default="data/dock/panel.json")
+@click.option("--matrix-out", default="data/dock/matrix_targets.json")
 @click.option("--af-quality-out", default="data/dock/af_quality.json")
 @click.option("--n-candidates", default=150, type=int)
 @click.option("--n-refs", default=30, type=int)
 @click.option("--top-m", default=10, type=int)
-@click.option("--panel-p", default=6, type=int)
 @click.option("--seed", default=42, type=int)
 @click.option(
     "--limit-targets",
     default=None,
     type=int,
-    help="Limit number of targets actually prepped/docked this run (dry-run). The reference "
-    "panel is still chosen from the FULL target list so it stays reproducible across runs.",
+    help="Limit number of SOURCE targets/pockets actually prepped/docked this run (dry-run). "
+    "A genuine full run is invoked with no limit.",
 )
-def main(targets, scores, af_scores, panel_out, af_quality_out, n_candidates, n_refs, top_m, panel_p, seed, limit_targets):
+def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed, limit_targets):
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     load_model = _import_load_model()
     device = torch.device("cpu")
     _model, fpindex, _rxn = load_model(MASKED_CKPT, None, device)  # for random-REAL pool
 
     tgts_all = json.load(open(targets))
-    target_ids_all = [t["target_id"] for t in tgts_all]
-    panel = choose_panel(target_ids_all, panel_p, seed)
-    json.dump({"panel": panel, "seed": seed, "p": panel_p}, open(panel_out, "w"), indent=2)
-    print(f"reference panel (P={len(panel)}): {panel}", flush=True)
-
     tgts = tgts_all[:limit_targets] if limit_targets else tgts_all
     if limit_targets:
         print(f"--limit-targets {limit_targets} -> processing {len(tgts)} target(s) this run", flush=True)
 
-    # crystal receptor prep for the targets processed this run (own pockets)
+    # crystal receptor prep for the targets processed this run (own pockets == mismatch pockets)
     holo = {}
     for t in tgts:
         tid = t["target_id"]
@@ -112,7 +99,8 @@ def main(targets, scores, af_scores, panel_out, af_quality_out, n_candidates, n_
             holo[tid] = None
     ok = [t for t in tgts if holo[t["target_id"]] is not None]
     ok_ids = [t["target_id"] for t in ok]
-    panel = [p for p in panel if p in ok_ids]  # drop panel pockets not prepped this run
+    json.dump({"targets": ok_ids, "mode": "all_pairs", "seed": seed}, open(matrix_out, "w"), indent=2)
+    print(f"all-pairs matrix targets (N={len(ok_ids)}): {ok_ids}", flush=True)
 
     # ---- crystal own-pocket docking + top-M selection ----
     done = _done_pairs(scores)
@@ -134,18 +122,21 @@ def main(targets, scores, af_scores, panel_out, af_quality_out, n_candidates, n_
         top_m_smiles[tid] = select_topm_for_target(own, top_m)
         print(f"  {tid}: crystal own-pocket done, top-{len(top_m_smiles[tid])} selected", flush=True)
 
-    # ---- crystal panel mismatch: every target's top-M into each panel pocket ----
+    # ---- crystal all-pairs mismatch: every target's top-M into EVERY prepped pocket ----
+    # (pk == tid, i.e. the diagonal, is already covered by own-pocket docking above and
+    # will idempotent-skip via `done` — kept simple rather than special-cased.)
     for t in ok:
         tid = t["target_id"]
-        for pk in panel:
+        for pk in ok_ids:
             spec_pk = holo[pk]
             for smi in top_m_smiles[tid]:
                 _dock_into(dock_fn, spec_pk, smi, seed, tid, pk, "candidate", scores, done)
-        print(f"  {tid}: crystal panel mismatch done", flush=True)
+        print(f"  {tid}: crystal all-pairs mismatch done", flush=True)
 
-    # ---- AF arm: AF-render own + panel pockets, dock top-M ----
+    # ---- AF arm: AF-render ALL prepped pockets, dock every source's top-M into every AF
+    # pocket whose prep succeeded ----
     af_done = _done_pairs(af_scores)
-    af_pockets = sorted(set(panel) | set(ok_ids))  # need AF for own pockets too
+    af_pockets = ok_ids
     af_spec = {}
     for pk in af_pockets:
         acc = pk.split("_")[0]
@@ -156,10 +147,10 @@ def main(targets, scores, af_scores, panel_out, af_quality_out, n_candidates, n_
         except Exception as e:
             print(f"  AF prep FAILED {pk}: {e} — skip pocket", flush=True)
             af_spec[pk] = None
+    af_ok_pockets = [pk for pk in af_pockets if af_spec.get(pk) is not None]
     for t in ok:
         tid = t["target_id"]
-        pockets = [pk for pk in ([tid] + panel) if af_spec.get(pk) is not None]
-        for pk in sorted(set(pockets)):
+        for pk in af_ok_pockets:
             for smi in top_m_smiles[tid]:
                 _dock_into(dock_fn, af_spec[pk].spec, smi, seed, tid, pk, "candidate", af_scores, af_done)
         print(f"  {tid}: AF arm done", flush=True)

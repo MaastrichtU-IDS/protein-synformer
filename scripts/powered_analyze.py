@@ -20,44 +20,54 @@ def bootstrap_ci(values, stat, n_boot: int = 10000, seed: int = 42, alpha: float
     return (float(np.quantile(boots, alpha / 2)), float(np.quantile(boots, 1 - alpha / 2)))
 
 
-def _panel_normalized_delta(scores_csv, target_ids, panel, top_m_by_target):
-    """Per source target: z-normalize within each panel-pocket column (all sources), then
-    own_z - mean(offdiag_z over panel pockets != self). Returns {target: delta}, {target: win}."""
-    df = pd.read_csv(scores_csv)
-    df = df[df.source == "candidate"]
-    # matrix over sources x panel pockets: best (min) score of a source's top-M in that pocket
-    M = {}
-    for ti in target_ids:
-        mols = set(top_m_by_target.get(ti, []))
-        for pk in panel:
-            s = df[(df.molecule.isin(mols)) & (df.pocket == pk)].score.dropna()
-            M[(ti, pk)] = s.min() if len(s) else np.nan
-    # own-pocket best (diagonal): source docked into its OWN pocket
-    for ti in target_ids:
-        mols = set(top_m_by_target.get(ti, []))
-        s = df[(df.molecule.isin(mols)) & (df.pocket == ti)].score.dropna()
-        M[(ti, ti)] = s.min() if len(s) else np.nan
-    # z within each panel column
-    colz = {}
-    for pk in panel:
-        col = np.array([M[(ti, pk)] for ti in target_ids], dtype=float)
-        mu, sd = np.nanmean(col), np.nanstd(col)
-        colz[pk] = {ti: ((M[(ti, pk)] - mu) / sd if sd else np.nan) for ti in target_ids}
+def _delta_win_from_matrix(M, target_ids):
+    """Core of the clean normalized-delta metric, factored out of matrix construction so it
+    is directly unit-testable on a synthetic matrix.
+
+    ``M`` is an N×N array where ``M[i, j]`` is source ``i``'s best (min) docking score in
+    pocket ``j`` (NaN if absent). Every column is full (every source was docked into every
+    pocket), so — mirroring ``dock_analyze.py``'s trusted N=5 approach — we z-normalize
+    within each COLUMN j (nan-aware, across all sources i), which puts the diagonal (own
+    pocket) and every off-diagonal cell on exactly the same per-pocket scale. For each
+    source i with a finite own (diagonal) cell and at least one finite off-diagonal z:
+    ``delta_i = z(M[i,i]) - mean(z(M[i,j]) for j != i)``; ``win_i = 1.0 if delta_i < 0 else 0.0``.
+    Targets whose own cell or all off-diagonal cells are NaN are skipped entirely.
+    """
+    M = np.asarray(M, dtype=float)
+    n = M.shape[0]
+    mu = np.nanmean(M, axis=0)
+    sd = np.nanstd(M, axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        Z = (M - mu) / sd
     delta, win = {}, {}
-    for ti in target_ids:
-        # own_z: normalize own score against the ti-column distribution if ti in panel,
-        # else against the pooled panel mean/sd (own pocket not a panel column)
-        own = M[(ti, ti)]
-        offs = [colz[pk][ti] for pk in panel if pk != ti and colz[pk][ti] == colz[pk][ti]]
-        if not offs or own != own:
+    for i, ti in enumerate(target_ids):
+        own_z = Z[i, i]
+        offs = [Z[i, j] for j in range(n) if j != i and np.isfinite(Z[i, j])]
+        if not offs or not np.isfinite(own_z):
             continue
-        # normalize own against the same per-pocket scale: use mean/sd of the OWN column if present,
-        # else the mean of panel column mu/sd (approx). Simple + robust: z own vs panel-pocket pooled.
-        pool = np.array([M[(tj, pk)] for pk in panel for tj in target_ids], dtype=float)
-        own_z = (own - np.nanmean(pool)) / np.nanstd(pool)
-        delta[ti] = own_z - float(np.mean(offs))
+        delta[ti] = float(own_z - float(np.mean(offs)))
         win[ti] = 1.0 if delta[ti] < 0 else 0.0
     return delta, win
+
+
+def _matrix_normalized_delta(scores_csv, target_ids, top_m_by_target):
+    """Build the full N×N mismatch matrix from the scores CSV — M[i][j] = min score of
+    source i's top-M SMILES (candidate source only) docked into pocket j, NaN if absent —
+    then delegate to ``_delta_win_from_matrix`` for the per-column z-normalized delta/win.
+    ``target_ids`` is used as BOTH the matrix rows and columns (every target is a pocket)."""
+    df = pd.read_csv(scores_csv)
+    df = df[df.source == "candidate"]
+    n = len(target_ids)
+    M = np.full((n, n), np.nan)
+    for i, ti in enumerate(target_ids):
+        mols = set(top_m_by_target.get(ti, []))
+        if not mols:
+            continue
+        for j, tj in enumerate(target_ids):
+            s = df[(df.molecule.isin(mols)) & (df.pocket == tj)].score.dropna()
+            if len(s):
+                M[i, j] = s.min()
+    return _delta_win_from_matrix(M, target_ids)
 
 
 def paired_diff_ci(a_by_t, b_by_t, seed: int = 42, n_boot: int = 10000):
@@ -70,17 +80,15 @@ def paired_diff_ci(a_by_t, b_by_t, seed: int = 42, n_boot: int = 10000):
 @click.command()
 @click.option("--scores", default="data/dock/dock_scores.csv")
 @click.option("--af-scores", default="data/dock/dock_scores_af.csv")
-@click.option("--panel", "panel_json", default="data/dock/panel.json")
-@click.option("--targets", default="data/dock/powered_targets.json")
+@click.option("--matrix", "matrix_json", default="data/dock/matrix_targets.json")
 @click.option("--boltz-scores", default="data/boltz/boltz_controls_scores.csv")
 @click.option("--n-candidates", default=150, type=int)
 @click.option("--top-m", default=10, type=int)
 @click.option("--out", default="data/dock/powered_specificity_summary.csv")
-def main(scores, af_scores, panel_json, targets, boltz_scores, n_candidates, top_m, out):
+def main(scores, af_scores, matrix_json, boltz_scores, n_candidates, top_m, out):
     from scripts.dock_select import select_topm_for_target, _load_scores_table
     import pathlib
-    target_ids = [t["target_id"] for t in json.load(open(targets))]
-    panel = json.load(open(panel_json))["panel"]
+    target_ids = json.load(open(matrix_json))["targets"]
     # reconstruct top-M per target from crystal own-pocket candidate scores
     tbl = _load_scores_table(pathlib.Path(scores))
     dfc = pd.read_csv(scores)
@@ -90,8 +98,8 @@ def main(scores, af_scores, panel_json, targets, boltz_scores, n_candidates, top
         own = {r.molecule: r.score for r in cand.itertuples()}
         top_m_by[ti] = select_topm_for_target(own, top_m)
 
-    cd, cw = _panel_normalized_delta(scores, target_ids, panel, top_m_by)
-    ad, aw = _panel_normalized_delta(af_scores, target_ids, panel, top_m_by)
+    cd, cw = _matrix_normalized_delta(scores, target_ids, top_m_by)
+    ad, aw = _matrix_normalized_delta(af_scores, target_ids, top_m_by)
 
     rows = []
     for label, d, w in [("crystal", cd, cw), ("alphafold", ad, aw)]:
