@@ -85,8 +85,11 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
 @click.option("--work-dir", default="boltz_out/pw",
               help="Scratch dir for receptor/AF prep (use a per-shard dir so parallel shards "
               "don't race on the same receptor.pdb/af_receptor.pdb paths).")
+@click.option("--sources", "sources_opt", default=None,
+              help="Explicit comma-separated SOURCE target_ids to dock into ALL pockets (robust "
+              "alternative to --source-shard; no index fragility). Overrides --source-shard.")
 def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed,
-         limit_targets, source_shard, work_dir):
+         limit_targets, source_shard, work_dir, sources_opt):
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     device = torch.device("cpu")
     # The generation model + fingerprint index are ONLY needed to enumerate the random-REAL
@@ -156,9 +159,13 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         top_m_smiles[tid] = select_topm_for_target(own, top_m)
         print(f"  {tid}: own-pocket ready, top-{len(top_m_smiles[tid])} selected", flush=True)
 
-    # ---- source sharding (parallel runs): dock only this shard's SOURCE targets into ALL pockets ----
+    # ---- source sharding (parallel runs): dock only these SOURCE targets into ALL pockets ----
     sources = ok
-    if source_shard:
+    if sources_opt:
+        want = {s.strip() for s in sources_opt.split(",")}
+        sources = [t for t in ok if t["target_id"] in want]
+        print(f"--sources: {[t['target_id'] for t in sources]} -> all {len(ok_ids)} pockets", flush=True)
+    elif source_shard:
         si, sn = (int(x) for x in source_shard.split("/"))
         sources = [t for k, t in enumerate(ok) if k % sn == si]
         print(f"source-shard {si}/{sn}: {len(sources)}/{len(ok)} source targets -> all "
