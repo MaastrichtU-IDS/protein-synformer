@@ -77,9 +77,19 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
 )
 def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed, limit_targets):
     dock_fn, prepare_target, _stm, _mm = _import_dock()
-    load_model = _import_load_model()
     device = torch.device("cpu")
-    _model, fpindex, _rxn = load_model(MASKED_CKPT, None, device)  # for random-REAL pool
+    # The generation model + fingerprint index are ONLY needed to enumerate the random-REAL
+    # pool for own-pocket docking. If the checkpoint is unavailable (e.g. a remote box where
+    # own-pocket docking is already cached and only the mismatch/AF phases remain), skip the
+    # load; the mismatch + AF phases and top-M selection need only the candidate files + the
+    # score CSV. `fpindex is None` disables random-REAL enumeration (own-pocket must be cached).
+    fpindex = None
+    try:
+        load_model = _import_load_model()
+        _model, fpindex, _rxn = load_model(MASKED_CKPT, None, device)
+    except (FileNotFoundError, OSError) as e:
+        print(f"generation model unavailable ({e}); own-pocket docking assumed cached — "
+              f"running mismatch + AF phases only (random-REAL enumeration disabled)", flush=True)
 
     tgts_all = json.load(open(targets))
     tgts = tgts_all[:limit_targets] if limit_targets else tgts_all
@@ -109,18 +119,27 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         tid = t["target_id"]
         spec = holo[tid]
         cands = _load_candidates(tid, n_candidates)
-        knowns, _avail, _used = _load_known_ligands(tid, n_refs, seed)
-        randoms = _load_random_real(n_refs, seed, i, fpindex)
-        for smi in cands:
-            _dock_into(dock_fn, spec, smi, seed, tid, tid, "candidate", scores, done)
-        for smi in knowns:
-            _dock_into(dock_fn, spec, smi, seed, tid, tid, "known", scores, done)
-        for smi in randoms:
-            _dock_into(dock_fn, spec, smi, seed, tid, tid, "random", scores, done)
+        if fpindex is not None:
+            # full own-pocket docking (candidates + known + random)
+            knowns, _avail, _used = _load_known_ligands(tid, n_refs, seed)
+            randoms = _load_random_real(n_refs, seed, i, fpindex)
+            for smi in cands:
+                _dock_into(dock_fn, spec, smi, seed, tid, tid, "candidate", scores, done)
+            for smi in knowns:
+                _dock_into(dock_fn, spec, smi, seed, tid, tid, "known", scores, done)
+            for smi in randoms:
+                _dock_into(dock_fn, spec, smi, seed, tid, tid, "random", scores, done)
+        else:
+            # cached mode (no generation model): own-pocket must already be docked
+            if not any((smi, tid) in done for smi in cands):
+                raise RuntimeError(
+                    f"{tid}: no cached own-pocket candidate scores and no model to generate — "
+                    f"cannot compute top-M. Provide the checkpoint or a populated dock_scores.csv."
+                )
         tbl = _load_scores_table(pathlib.Path(scores))
         own = {smi: tbl.get((smi, tid), float("nan")) for smi in cands}
         top_m_smiles[tid] = select_topm_for_target(own, top_m)
-        print(f"  {tid}: crystal own-pocket done, top-{len(top_m_smiles[tid])} selected", flush=True)
+        print(f"  {tid}: own-pocket ready, top-{len(top_m_smiles[tid])} selected", flush=True)
 
     # ---- crystal all-pairs mismatch: every target's top-M into EVERY prepped pocket ----
     # (pk == tid, i.e. the diagonal, is already covered by own-pocket docking above and

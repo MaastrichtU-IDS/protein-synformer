@@ -19,7 +19,7 @@ import click
 import pandas as pd
 import yaml
 
-BOLTZ = ".venv-boltz-mps/bin/boltz"
+BOLTZ = os.environ.get("BOLTZ", ".venv-boltz-mps/bin/boltz")
 COLUMNS = ["hit_target", "protein", "smiles", "affinity_pred", "binder_prob", "ligand_iptm"]
 
 
