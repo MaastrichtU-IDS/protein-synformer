@@ -87,9 +87,13 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     try:
         load_model = _import_load_model()
         _model, fpindex, _rxn = load_model(MASKED_CKPT, None, device)
-    except (FileNotFoundError, OSError) as e:
-        print(f"generation model unavailable ({e}); own-pocket docking assumed cached — "
-              f"running mismatch + AF phases only (random-REAL enumeration disabled)", flush=True)
+    except (FileNotFoundError, OSError, ImportError) as e:
+        # FileNotFoundError/OSError: checkpoint/fpindex absent. ImportError: the generation
+        # model stack (omegaconf/torch-lightning/synformer.models) isn't installed (e.g. a
+        # remote docking-only box). Either way, fall back to cached mode — the own-pocket
+        # docking must already be present (guarded below), and mismatch + AF need no model.
+        print(f"generation model unavailable ({type(e).__name__}: {e}); own-pocket docking "
+              f"assumed cached — running mismatch + AF phases only (random-REAL disabled)", flush=True)
 
     tgts_all = json.load(open(targets))
     tgts = tgts_all[:limit_targets] if limit_targets else tgts_all
