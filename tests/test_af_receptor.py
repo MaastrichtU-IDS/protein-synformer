@@ -6,6 +6,7 @@ from synformer.dock.af_receptor import (
     MIN_ANCHORS_FRAC,
     superpose_onto,
     pocket_mean_plddt,
+    _ligand_binding_chain,
 )
 
 
@@ -131,3 +132,57 @@ def test_gate_rejects_large_rmsd_even_with_enough_anchors():
 def test_gate_accepts_strong_correspondence():
     # e.g. RBP4-like: 131 anchors, 0.34 A rmsd, ~150-residue chains
     assert _passes_gate(n_anchors=131, n_fixed_ca=150, n_mobile_ca=201, ca_rmsd=0.34)
+
+
+def test_ligand_binding_chain_picks_the_chain_with_the_ligand(tmp_path):
+    """Two-chain holo (as if a homodimer): chain A sits far from the ligand, chain B
+    sits right at it. `_ligand_binding_chain` must pick chain B -- the one the AF
+    monomer should actually be superposed onto -- not just the first chain."""
+    chain_a = _tiny_ca([[100.0, 100.0, 100.0], [101.0, 100.0, 100.0]], chain="A")
+    chain_b = _tiny_ca([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], chain="B")
+    holo_protein = chain_a + chain_b
+
+    lig_path = tmp_path / "ref_ligand.pdb"
+    lig = struc.AtomArray(1)
+    lig.coord = np.array([[0.5, 0.0, 0.0]])
+    lig.chain_id = np.array(["L"])
+    lig.res_id = np.array([1])
+    lig.res_name = np.array(["LIG"])
+    lig.atom_name = np.array(["C1"])
+    lig.element = np.array(["C"])
+    lig.hetero = np.array([True])
+    import biotite.structure.io.pdb as pdb_io
+    f = pdb_io.PDBFile(); pdb_io.set_structure(f, lig); f.write(str(lig_path))
+
+    assert _ligand_binding_chain(holo_protein, str(lig_path)) == "B"
+
+
+def test_superpose_single_chain_fixed_vs_full_monomer_mobile():
+    """Simulates the multi-chain fix directly: `fixed_ca` is only ONE chain's CA (as
+    if extracted from a homodimer/heteromer holo crystal via `_ligand_binding_chain`),
+    while `mobile`/`mobile_full` is the FULL AF monomer. Before the fix, `fixed_ca`
+    would have been built from ALL crystal chains concatenated, which for a monomer
+    `mobile` triggers `superimpose_homologs`'s `zip() argument 2 is shorter than
+    argument 1` error. Restricting `fixed_ca` to one chain (same sequence length
+    scale as the monomer) lets the correspondence succeed with rmsd ~ 0 and pass the
+    quality gate."""
+    n_mobile = 40
+    rng = np.random.default_rng(1)
+    steps = rng.normal(loc=[3.8, 0, 0], scale=[0.3, 1.2, 1.2], size=(n_mobile, 3))
+    mobile_coords = np.cumsum(steps, axis=0)
+    mobile_names = [_AA3[i] for i in rng.integers(0, len(_AA3), size=n_mobile)]
+    mobile = _tiny_ca(mobile_coords, chain="A", res_names=mobile_names)
+
+    # "fixed" = a single crystal chain (e.g. the ligand-binding chain of a homodimer):
+    # a rigidly-transformed, exact-sequence subset of mobile.
+    subset_idx = np.arange(5, 35)  # 30 of 40 residues
+    theta = np.pi / 4
+    rot = np.array([[np.cos(theta), 0, -np.sin(theta)], [0, 1, 0], [np.sin(theta), 0, np.cos(theta)]])
+    translation = np.array([-4.0, 6.0, 1.5])
+    fixed_coords = mobile.coord[subset_idx] @ rot.T + translation
+    fixed = _tiny_ca(fixed_coords, chain="B", res_names=[mobile_names[i] for i in subset_idx])
+
+    moved_full, rmsd, n_anchors = superpose_onto(fixed, mobile, mobile)
+
+    assert rmsd < 1e-3
+    assert _passes_gate(n_anchors, n_fixed_ca=len(fixed), n_mobile_ca=len(mobile), ca_rmsd=rmsd)

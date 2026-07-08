@@ -42,6 +42,30 @@ def _ca(atoms):
     return atoms[struc.filter_amino_acids(atoms) & (atoms.atom_name == "CA")]
 
 
+def _ligand_binding_chain(holo_protein_atoms, ref_ligand_path: str) -> str:
+    """Return the chain_id of the protein chain closest to the co-crystal ligand.
+
+    For multi-chain (homo-/hetero-multimeric) holo crystals, the AlphaFold model is a
+    MONOMER of the target's UniProt sequence, so only the single chain whose pocket
+    the ligand actually sits in is a valid homolog target for superposition -- using
+    ALL chains' CA atoms as the fixed set (as if the AF monomer could match a
+    multimer) is what makes `superimpose_homologs` raise `ValueError: zip() argument 2
+    is shorter than argument 1` on multi-chain targets.
+    """
+    lig = pdb_io.get_structure(pdb_io.PDBFile.read(ref_ligand_path), model=1)
+    lig_xyz = lig.coord
+
+    best_chain, best_dist = None, np.inf
+    for chain_id in np.unique(holo_protein_atoms.chain_id):
+        chain_xyz = holo_protein_atoms.coord[holo_protein_atoms.chain_id == chain_id]
+        dists = np.linalg.norm(chain_xyz[:, None, :] - lig_xyz[None, :, :], axis=-1)
+        min_dist = float(dists.min())
+        if min_dist < best_dist:
+            best_dist = min_dist
+            best_chain = str(chain_id)
+    return best_chain
+
+
 def superpose_onto(fixed_ca, mobile_ca, mobile_full):
     """Superpose mobile onto fixed using homologous-CA correspondence.
 
@@ -111,6 +135,10 @@ def prepare_af_target(accession: str, holo_spec: ReceptorSpec, out_dir: str) -> 
     write an AF-based receptor that reuses the crystal's co-crystal ligand as the
     docking box.
 
+    The AF model is a MONOMER, so for multi-chain (homo-/hetero-multimeric) holo
+    crystals the superposition is restricted to the single crystal chain whose pocket
+    the co-crystal ligand binds (see `_ligand_binding_chain`) rather than all chains.
+
     Parameters
     ----------
     accession:
@@ -144,12 +172,21 @@ def prepare_af_target(accession: str, holo_spec: ReceptorSpec, out_dir: str) -> 
         # (pLDDT for AF models) by default, and pocket_mean_plddt needs it.
         af = pdb_io.get_structure(pdb_io.PDBFile.read(af_path), model=1, extra_fields=["b_factor"])
     holo = pdb_io.get_structure(pdb_io.PDBFile.read(holo_spec.receptor_path), model=1)
+    holo_protein = holo[struc.filter_amino_acids(holo)]
 
-    fixed_ca, mobile_ca = _ca(holo), _ca(af)
+    # The AF model is a MONOMER of this target's UniProt sequence; the holo crystal
+    # may be a homo-/hetero-multimer. Restrict the fixed CA correspondence to the
+    # single chain the co-crystal ligand actually binds -- superposing against ALL
+    # chains would try to match a monomer's sequence against a multi-chain
+    # concatenation and raise a length-mismatch error in `superimpose_homologs`.
+    chain_id = _ligand_binding_chain(holo_protein, holo_spec.ref_ligand_path)
+    holo_chain = holo_protein[holo_protein.chain_id == chain_id]
+
+    fixed_ca, mobile_ca = _ca(holo_chain), _ca(af)
     moved_af, rmsd, n_anchors = superpose_onto(fixed_ca, mobile_ca, af)
     log.info(
-        "Superposed AF-%s onto %s: n_anchors=%d, ca_rmsd=%.2f A",
-        accession, holo_spec.receptor_path, n_anchors, rmsd,
+        "Superposed AF-%s onto %s chain %s: n_anchors=%d, ca_rmsd=%.2f A",
+        accession, holo_spec.receptor_path, chain_id, n_anchors, rmsd,
     )
 
     min_anchors_required = max(MIN_ANCHORS_ABS, MIN_ANCHORS_FRAC * min(len(fixed_ca), len(mobile_ca)))
