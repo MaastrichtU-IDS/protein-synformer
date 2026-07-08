@@ -239,20 +239,26 @@ def scan(limit, max_pdbs, out):
 @click.option("--target-min", type=int, default=150, help="Stop early once this many unique valid.")
 @click.option("--seed", type=int, default=42)
 @click.option("--only", default=None, help="Comma-separated target_ids to (re)generate; default all.")
-def generate(repeat, n_calls, target_min, seed, only):
-    """Sample candidate SMILES for each target in targets.json."""
+@click.option("--targets", "targets_path", default=None,
+              help="Targets JSON to read (default data/dock/targets.json).")
+def generate(repeat, n_calls, target_min, seed, only, targets_path):
+    """Sample candidate SMILES for each target in the targets JSON.
+
+    Skips any target whose candidate file already exists (idempotent/resumable, and
+    preserves candidate pools already docked in dock_scores.csv)."""
     import torch
 
     from scripts.sample_helpers import load_model, load_protein_embeddings, sample
 
-    if not TARGETS_JSON.exists():
-        raise click.ClickException(f"{TARGETS_JSON} not found — run scan + write targets.json first")
-    targets = json.loads(TARGETS_JSON.read_text())
+    tj = Path(targets_path) if targets_path else TARGETS_JSON
+    if not tj.exists():
+        raise click.ClickException(f"{tj} not found — run scan + write targets.json first")
+    targets = json.loads(tj.read_text())
     target_ids = [t["target_id"] for t in targets]
     if only:
         wanted = {s.strip() for s in only.split(",")}
         target_ids = [t for t in target_ids if t in wanted]
-    log.info("generating for %d targets: %s", len(target_ids), target_ids)
+    log.info("generating for %d targets from %s: %s", len(target_ids), tj, target_ids)
 
     device = torch.device("mps")
     torch.manual_seed(seed)
@@ -262,6 +268,9 @@ def generate(repeat, n_calls, target_min, seed, only):
 
     CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
     for target_id in target_ids:
+        if (CANDIDATES_DIR / f"{target_id}.txt").exists():
+            log.info("skip %s: candidate file already exists", target_id)
+            continue
         if target_id not in protein_embeddings:
             log.warning("skip %s: not in embeddings", target_id)
             continue
