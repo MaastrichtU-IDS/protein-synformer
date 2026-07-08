@@ -82,8 +82,11 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
     "pockets. Pockets are always the full prepped set. Run n shards concurrently, each with its "
     "own --scores/--af-scores file, then merge (dedup by molecule,pocket).",
 )
+@click.option("--work-dir", default="boltz_out/pw",
+              help="Scratch dir for receptor/AF prep (use a per-shard dir so parallel shards "
+              "don't race on the same receptor.pdb/af_receptor.pdb paths).")
 def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed,
-         limit_targets, source_shard):
+         limit_targets, source_shard, work_dir):
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     device = torch.device("cpu")
     # The generation model + fingerprint index are ONLY needed to enumerate the random-REAL
@@ -114,7 +117,7 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         tid = t["target_id"]
         try:
             holo[tid] = prepare_target(
-                t["pdb_id"], f"boltz_out/pw/holo/{tid}", ligand_resname=t["ligand_resname"]
+                t["pdb_id"], f"{work_dir}/holo/{tid}", ligand_resname=t["ligand_resname"]
             )
         except Exception as e:
             print(f"  prepare_target FAILED {tid}: {e} — skip", flush=True)
@@ -180,7 +183,7 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     for pk in af_pockets:
         acc = pk.split("_")[0]
         try:
-            r = prepare_af_target(acc, holo[pk], f"boltz_out/pw/af/{pk}")
+            r = prepare_af_target(acc, holo[pk], f"{work_dir}/af/{pk}")
             af_spec[pk] = r
             print(f"  AF {pk}: CA-RMSD {r.ca_rmsd:.2f} pocket-pLDDT {r.pocket_plddt:.1f}", flush=True)
         except Exception as e:
