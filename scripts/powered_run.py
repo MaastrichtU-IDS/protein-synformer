@@ -1,0 +1,180 @@
+"""Powered specificity run: crystal + AlphaFold docking arms over ~20 targets, using a
+fixed reference-pocket panel for the mismatch control. Reuses scripts.dock_select helpers
+and synformer.dock. Idempotent/resumable; intended for an in-session background run."""
+from __future__ import annotations
+
+import csv
+import json
+import os
+import pathlib
+import random
+
+import click
+import pandas as pd
+import torch
+
+from scripts.dock_select import (
+    MASKED_CKPT,
+    _import_dock,
+    _import_load_model,
+    _load_candidates,
+    _load_known_ligands,
+    _load_random_real,
+    _load_scores_table,
+    select_topm_for_target,
+)
+from synformer.dock.af_receptor import prepare_af_target
+
+COLUMNS = ["target", "pocket", "molecule", "source", "score"]
+
+
+def choose_panel(target_ids, p: int, seed: int) -> list:
+    rng = random.Random(seed)
+    ts = list(target_ids)
+    rng.shuffle(ts)
+    return sorted(ts[: min(p, len(ts))])
+
+
+def _done_pairs(path: str) -> set:
+    """(molecule, pocket) pairs already scored — the idempotency key. Built directly from
+    the CSV so it does not depend on dock_select's internal key ordering."""
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return set()
+    df = pd.read_csv(path)
+    return set(zip(df.molecule, df.pocket)) if len(df) else set()
+
+
+def _append(path, row):
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNS)
+        if new:
+            w.writeheader()
+        w.writerow({k: row[k] for k in COLUMNS})
+        fh.flush()
+
+
+def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, done):
+    if (smiles, pocket) in done:
+        return
+    score = dock_fn(spec, smiles, seed=seed)
+    _append(
+        scores_csv,
+        {"target": target, "pocket": pocket, "molecule": smiles, "source": source, "score": score},
+    )
+    done.add((smiles, pocket))
+
+
+@click.command()
+@click.option("--targets", default="data/dock/powered_targets.json")
+@click.option("--scores", default="data/dock/dock_scores.csv")
+@click.option("--af-scores", default="data/dock/dock_scores_af.csv")
+@click.option("--panel-out", default="data/dock/panel.json")
+@click.option("--af-quality-out", default="data/dock/af_quality.json")
+@click.option("--n-candidates", default=150, type=int)
+@click.option("--n-refs", default=30, type=int)
+@click.option("--top-m", default=10, type=int)
+@click.option("--panel-p", default=6, type=int)
+@click.option("--seed", default=42, type=int)
+@click.option(
+    "--limit-targets",
+    default=None,
+    type=int,
+    help="Limit number of targets actually prepped/docked this run (dry-run). The reference "
+    "panel is still chosen from the FULL target list so it stays reproducible across runs.",
+)
+def main(targets, scores, af_scores, panel_out, af_quality_out, n_candidates, n_refs, top_m, panel_p, seed, limit_targets):
+    dock_fn, prepare_target, _stm, _mm = _import_dock()
+    load_model = _import_load_model()
+    device = torch.device("cpu")
+    _model, fpindex, _rxn = load_model(MASKED_CKPT, None, device)  # for random-REAL pool
+
+    tgts_all = json.load(open(targets))
+    target_ids_all = [t["target_id"] for t in tgts_all]
+    panel = choose_panel(target_ids_all, panel_p, seed)
+    json.dump({"panel": panel, "seed": seed, "p": panel_p}, open(panel_out, "w"), indent=2)
+    print(f"reference panel (P={len(panel)}): {panel}", flush=True)
+
+    tgts = tgts_all[:limit_targets] if limit_targets else tgts_all
+    if limit_targets:
+        print(f"--limit-targets {limit_targets} -> processing {len(tgts)} target(s) this run", flush=True)
+
+    # crystal receptor prep for the targets processed this run (own pockets)
+    holo = {}
+    for t in tgts:
+        tid = t["target_id"]
+        try:
+            holo[tid] = prepare_target(
+                t["pdb_id"], f"boltz_out/pw/holo/{tid}", ligand_resname=t["ligand_resname"]
+            )
+        except Exception as e:
+            print(f"  prepare_target FAILED {tid}: {e} — skip", flush=True)
+            holo[tid] = None
+    ok = [t for t in tgts if holo[t["target_id"]] is not None]
+    ok_ids = [t["target_id"] for t in ok]
+    panel = [p for p in panel if p in ok_ids]  # drop panel pockets not prepped this run
+
+    # ---- crystal own-pocket docking + top-M selection ----
+    done = _done_pairs(scores)
+    top_m_smiles = {}
+    for i, t in enumerate(ok):
+        tid = t["target_id"]
+        spec = holo[tid]
+        cands = _load_candidates(tid, n_candidates)
+        knowns, _avail, _used = _load_known_ligands(tid, n_refs, seed)
+        randoms = _load_random_real(n_refs, seed, i, fpindex)
+        for smi in cands:
+            _dock_into(dock_fn, spec, smi, seed, tid, tid, "candidate", scores, done)
+        for smi in knowns:
+            _dock_into(dock_fn, spec, smi, seed, tid, tid, "known", scores, done)
+        for smi in randoms:
+            _dock_into(dock_fn, spec, smi, seed, tid, tid, "random", scores, done)
+        tbl = _load_scores_table(pathlib.Path(scores))
+        own = {smi: tbl.get((smi, tid), float("nan")) for smi in cands}
+        top_m_smiles[tid] = select_topm_for_target(own, top_m)
+        print(f"  {tid}: crystal own-pocket done, top-{len(top_m_smiles[tid])} selected", flush=True)
+
+    # ---- crystal panel mismatch: every target's top-M into each panel pocket ----
+    for t in ok:
+        tid = t["target_id"]
+        for pk in panel:
+            spec_pk = holo[pk]
+            for smi in top_m_smiles[tid]:
+                _dock_into(dock_fn, spec_pk, smi, seed, tid, pk, "candidate", scores, done)
+        print(f"  {tid}: crystal panel mismatch done", flush=True)
+
+    # ---- AF arm: AF-render own + panel pockets, dock top-M ----
+    af_done = _done_pairs(af_scores)
+    af_pockets = sorted(set(panel) | set(ok_ids))  # need AF for own pockets too
+    af_spec = {}
+    for pk in af_pockets:
+        acc = pk.split("_")[0]
+        try:
+            r = prepare_af_target(acc, holo[pk], f"boltz_out/pw/af/{pk}")
+            af_spec[pk] = r
+            print(f"  AF {pk}: CA-RMSD {r.ca_rmsd:.2f} pocket-pLDDT {r.pocket_plddt:.1f}", flush=True)
+        except Exception as e:
+            print(f"  AF prep FAILED {pk}: {e} — skip pocket", flush=True)
+            af_spec[pk] = None
+    for t in ok:
+        tid = t["target_id"]
+        pockets = [pk for pk in ([tid] + panel) if af_spec.get(pk) is not None]
+        for pk in sorted(set(pockets)):
+            for smi in top_m_smiles[tid]:
+                _dock_into(dock_fn, af_spec[pk].spec, smi, seed, tid, pk, "candidate", af_scores, af_done)
+        print(f"  {tid}: AF arm done", flush=True)
+
+    # record AF prep quality
+    json.dump(
+        {
+            pk: (None if r is None else {"ca_rmsd": r.ca_rmsd, "pocket_plddt": r.pocket_plddt})
+            for pk, r in af_spec.items()
+        },
+        open(af_quality_out, "w"),
+        indent=2,
+    )
+    print("done.", flush=True)
+
+
+if __name__ == "__main__":
+    main()
