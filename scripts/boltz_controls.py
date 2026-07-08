@@ -30,14 +30,20 @@ def stem_for(target: str, cls: str, smiles: str) -> str:
     return f"ctrl_{target}_{cls}_{h}"
 
 
-def enumerate_control_cells(dock_scores_csv: str, inputs_json: str) -> list[dict]:
+def enumerate_control_cells(dock_scores_csv: str, inputs_json: str, cap: int | None = None) -> list[dict]:
+    """Cells = each target's own-pocket known + random molecules co-folded into its own
+    sequence. `cap` limits the number of molecules PER (target, class) to bound Boltz
+    compute at scale (deterministic: first `cap` unique SMILES in CSV order)."""
     seq_of = {p["target_id"]: p["sequence"] for p in json.load(open(inputs_json))["proteins"]}
     df = pd.read_csv(dock_scores_csv)
     cells = []
     for tid, seq in seq_of.items():
         for cls in ("known", "random"):
             sub = df[(df.target == tid) & (df.pocket == tid) & (df.source == cls)]
-            for smi in sub.molecule.unique():
+            smis = list(sub.molecule.unique())
+            if cap is not None:
+                smis = smis[:cap]
+            for smi in smis:
                 cells.append({"target": tid, "class": cls, "smiles": smi,
                               "sequence": seq, "stem": stem_for(tid, cls, smi)})
     return cells
@@ -70,8 +76,9 @@ def _append_row(scores_csv: str, row: dict) -> None:
 @click.option("--samples", default=3, type=int)
 @click.option("--accelerator", default="mps")
 @click.option("--limit", default=None, type=int, help="run only the first N cells (dry-run)")
-def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit):
-    cells = enumerate_control_cells(dock_scores, inputs)
+@click.option("--cap", default=None, type=int, help="max molecules per (target,class) to bound compute")
+def main(dock_scores, inputs, out_dir, scores, samples, accelerator, limit, cap):
+    cells = enumerate_control_cells(dock_scores, inputs, cap=cap)
     if limit is not None:
         cells = cells[:limit]
     os.makedirs(out_dir, exist_ok=True)
