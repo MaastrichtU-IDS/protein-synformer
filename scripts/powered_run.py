@@ -75,7 +75,21 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
     help="Limit number of SOURCE targets/pockets actually prepped/docked this run (dry-run). "
     "A genuine full run is invoked with no limit.",
 )
-def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed, limit_targets):
+@click.option(
+    "--source-shard",
+    default=None,
+    help="Parallel sharding as 'i/n': dock only SOURCE targets where index%%n==i, into ALL "
+    "pockets. Pockets are always the full prepped set. Run n shards concurrently, each with its "
+    "own --scores/--af-scores file, then merge (dedup by molecule,pocket).",
+)
+@click.option("--work-dir", default="boltz_out/pw",
+              help="Scratch dir for receptor/AF prep (use a per-shard dir so parallel shards "
+              "don't race on the same receptor.pdb/af_receptor.pdb paths).")
+@click.option("--sources", "sources_opt", default=None,
+              help="Explicit comma-separated SOURCE target_ids to dock into ALL pockets (robust "
+              "alternative to --source-shard; no index fragility). Overrides --source-shard.")
+def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed,
+         limit_targets, source_shard, work_dir, sources_opt):
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     device = torch.device("cpu")
     # The generation model + fingerprint index are ONLY needed to enumerate the random-REAL
@@ -106,7 +120,7 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         tid = t["target_id"]
         try:
             holo[tid] = prepare_target(
-                t["pdb_id"], f"boltz_out/pw/holo/{tid}", ligand_resname=t["ligand_resname"]
+                t["pdb_id"], f"{work_dir}/holo/{tid}", ligand_resname=t["ligand_resname"]
             )
         except Exception as e:
             print(f"  prepare_target FAILED {tid}: {e} — skip", flush=True)
@@ -145,10 +159,22 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         top_m_smiles[tid] = select_topm_for_target(own, top_m)
         print(f"  {tid}: own-pocket ready, top-{len(top_m_smiles[tid])} selected", flush=True)
 
-    # ---- crystal all-pairs mismatch: every target's top-M into EVERY prepped pocket ----
+    # ---- source sharding (parallel runs): dock only these SOURCE targets into ALL pockets ----
+    sources = ok
+    if sources_opt:
+        want = {s.strip() for s in sources_opt.split(",")}
+        sources = [t for t in ok if t["target_id"] in want]
+        print(f"--sources: {[t['target_id'] for t in sources]} -> all {len(ok_ids)} pockets", flush=True)
+    elif source_shard:
+        si, sn = (int(x) for x in source_shard.split("/"))
+        sources = [t for k, t in enumerate(ok) if k % sn == si]
+        print(f"source-shard {si}/{sn}: {len(sources)}/{len(ok)} source targets -> all "
+              f"{len(ok_ids)} pockets", flush=True)
+
+    # ---- crystal all-pairs mismatch: every SOURCE target's top-M into EVERY prepped pocket ----
     # (pk == tid, i.e. the diagonal, is already covered by own-pocket docking above and
     # will idempotent-skip via `done` — kept simple rather than special-cased.)
-    for t in ok:
+    for t in sources:
         tid = t["target_id"]
         for pk in ok_ids:
             spec_pk = holo[pk]
@@ -164,14 +190,14 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     for pk in af_pockets:
         acc = pk.split("_")[0]
         try:
-            r = prepare_af_target(acc, holo[pk], f"boltz_out/pw/af/{pk}")
+            r = prepare_af_target(acc, holo[pk], f"{work_dir}/af/{pk}")
             af_spec[pk] = r
             print(f"  AF {pk}: CA-RMSD {r.ca_rmsd:.2f} pocket-pLDDT {r.pocket_plddt:.1f}", flush=True)
         except Exception as e:
             print(f"  AF prep FAILED {pk}: {e} — skip pocket", flush=True)
             af_spec[pk] = None
     af_ok_pockets = [pk for pk in af_pockets if af_spec.get(pk) is not None]
-    for t in ok:
+    for t in sources:
         tid = t["target_id"]
         for pk in af_ok_pockets:
             for smi in top_m_smiles[tid]:

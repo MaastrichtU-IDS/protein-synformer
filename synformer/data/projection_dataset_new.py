@@ -7,14 +7,16 @@ from typing import cast
 
 import pytorch_lightning as pl
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, IterableDataset
 
 from synformer.chem.fpindex import FingerprintIndex
 from synformer.chem.matrix import ReactantReactionMatrix
 # from synformer.chem.stack import create_stack_step_by_step
-from synformer.chem.mol import FingerprintOption, Molecule 
+from synformer.chem.mol import FingerprintOption, Molecule
 from synformer.utils.train import worker_init_fn
 from synformer.data.common import TokenType
+from synformer.data.pocket_io import load_pockets
 
 from .collate import (
     apply_collate,
@@ -26,17 +28,39 @@ from .collate import (
 from .common import ProjectionBatch, ProjectionData  #, create_data
 
 
+def _pad_restype(feats: list[torch.Tensor], max_size: int) -> torch.Tensor:
+    """Right-pad each 1-D long tensor of residue types to max_size with pad index 20
+    (a real residue type is 0=ALA; the pocket encoder's embedding has 21 rows, 20=pad)."""
+    padded = [F.pad(f, [0, max_size - f.size(-1)], mode="constant", value=20) for f in feats]
+    return torch.stack(padded, dim=0)
+
+
+def collate_pocket(data_list, max_pocket: int = 128) -> dict[str, torch.Tensor]:
+    """Pad/mask a list of pocket examples (pocket_ca/pocket_cb/pocket_restype/pocket_padding_mask)
+    to a batch of shape (B, max_pocket, ...)."""
+    return {
+        "pocket_ca": collate_1d_features([d["pocket_ca"] for d in data_list], max_size=max_pocket),
+        "pocket_cb": collate_1d_features([d["pocket_cb"] for d in data_list], max_size=max_pocket),
+        "pocket_restype": _pad_restype([d["pocket_restype"] for d in data_list], max_pocket),
+        "pocket_padding_mask": collate_padding_masks(
+            [d["pocket_padding_mask"] for d in data_list], max_size=max_pocket
+        ),
+    }
+
+
 class Collater:
     """
     Batch assembly:
-    combines multiple examples into a single batch, including doing things like padding 
+    combines multiple examples into a single batch, including doing things like padding
     """
-    def __init__(self, 
+    def __init__(self,
                  max_protein_len: int = 2010,  # proteins are padded to max_protein_len
-                 max_num_tokens: int = 24):
+                 max_num_tokens: int = 24,
+                 max_pocket: int = 128):
         super().__init__()
         self.max_protein_len = max_protein_len
         self.max_num_tokens = max_num_tokens
+        self.max_pocket = max_pocket
         self.spec_protein = {
             "protein_embeddings": collate_1d_features,
             "protein_padding_mask": collate_padding_masks,
@@ -50,38 +74,45 @@ class Collater:
 
     def __call__(self, data_list: list[ProjectionData]) -> ProjectionBatch:
         data_list_t = cast(list[dict[str, torch.Tensor]], data_list)
+        pocket_mode = len(data_list_t) > 0 and "pocket_restype" in data_list_t[0]
+        if pocket_mode:
+            encoder_batch = collate_pocket(data_list_t, max_pocket=self.max_pocket)
+        else:
+            encoder_batch = apply_collate(self.spec_protein, data_list_t, max_size=self.max_protein_len)
         batch = {
-            **apply_collate(self.spec_protein, data_list_t, max_size=self.max_protein_len),
+            **encoder_batch,
             **apply_collate(self.spec_tokens, data_list_t, max_size=self.max_num_tokens),
             "mol_seq": [d["mol_seq"] for d in data_list],
             "rxn_seq": [d["rxn_seq"] for d in data_list],
         }
         return cast(ProjectionBatch, batch)
-        
+
 
 class ProjectionDataset(IterableDataset[ProjectionData]):
     def __init__(
         self,
         rxn_matrix: ReactantReactionMatrix,  
         fpindex: FingerprintIndex, 
-        protein_molecule_pairs: np.ndarray,  
-        protein_embeddings: dict, 
-        synthetic_pathways: dict,  
+        protein_molecule_pairs: np.ndarray,
+        protein_embeddings: dict,
+        synthetic_pathways: dict,
         max_num_reactions: int = 5,
         virtual_length: int = 65536,
         init_stack_weighted_ratio: float = 0.0,
-        fp_option: FingerprintOption = FingerprintOption()
+        fp_option: FingerprintOption = FingerprintOption(),
+        pockets: dict | None = None,
     ) -> None:
         super().__init__()
         self._max_num_reactions = max_num_reactions
         self._fpindex = fpindex
-        self._fp_option = fp_option 
+        self._fp_option = fp_option
         self._rxn_matrix = rxn_matrix
-        self._protein_molecule_pairs = protein_molecule_pairs 
-        self._protein_embeddings = protein_embeddings 
-        self._synthetic_pathways = synthetic_pathways 
+        self._protein_molecule_pairs = protein_molecule_pairs
+        self._protein_embeddings = protein_embeddings
+        self._synthetic_pathways = synthetic_pathways
         self._init_stack_weighted_ratio = init_stack_weighted_ratio
         self._virtual_length = virtual_length
+        self._pockets = pockets
 
     def __len__(self) -> int:
         return self._virtual_length
@@ -138,8 +169,13 @@ class ProjectionDataset(IterableDataset[ProjectionData]):
             'rxn_seq': (None, None, <synformer.chem.reaction.Reaction object>)  # ?
         } 
         """
+        pocket_mode = self._pockets is not None
         for smiles, protein_id in self._protein_molecule_pairs:
-            if smiles in self._synthetic_pathways and protein_id in self._protein_embeddings:
+            if pocket_mode:
+                gate = smiles in self._synthetic_pathways and protein_id in self._pockets
+            else:
+                gate = smiles in self._synthetic_pathways and protein_id in self._protein_embeddings
+            if gate:
                 pathway = torch.tensor(self._synthetic_pathways[smiles], dtype=torch.long)
                 token_types = pathway[:, 0]
                 rxn_indices = torch.where(pathway[:,0] == TokenType.REACTION, pathway[:,1], 0)  # extract rxn_indices; fill others with 0 
@@ -154,8 +190,21 @@ class ProjectionDataset(IterableDataset[ProjectionData]):
                     ]),
                     dtype=torch.float32
                 )
-                protein_embeddings = self._protein_embeddings[protein_id].to(torch.float32)
-                protein_padding_mask = torch.zeros(protein_embeddings.size(0), dtype=torch.bool)
+                if pocket_mode:
+                    pk = self._pockets[protein_id]
+                    encoder_data = {
+                        "pocket_ca": torch.tensor(pk["ca"]),
+                        "pocket_cb": torch.tensor(pk["cb"]),
+                        "pocket_restype": torch.tensor(pk["restype"], dtype=torch.long),
+                        "pocket_padding_mask": torch.zeros(len(pk["restype"]), dtype=torch.bool),
+                    }
+                else:
+                    protein_embeddings = self._protein_embeddings[protein_id].to(torch.float32)
+                    protein_padding_mask = torch.zeros(protein_embeddings.size(0), dtype=torch.bool)
+                    encoder_data = {
+                        "protein_embeddings": protein_embeddings,
+                        "protein_padding_mask": protein_padding_mask,
+                    }
                 token_padding_mask = torch.zeros_like(token_types, dtype=torch.bool)
                 # I assume it's n_tokens-2 elements (minus start, end tokens); see example below: 3 elements 
                 #  so I skip the start and end tokens
@@ -172,9 +221,8 @@ class ProjectionDataset(IterableDataset[ProjectionData]):
                     for rxn_idx in rxn_indices[1:-1] 
                 ]
                 data: "ProjectionData" = {
-                    # Encoder data (protein):
-                    "protein_embeddings": protein_embeddings,
-                    "protein_padding_mask": protein_padding_mask,
+                    # Encoder data (protein sequence or pocket, depending on mode):
+                    **encoder_data,
 
                     # Decoder data (synthetic pathway):
                     "token_types": token_types,
@@ -226,13 +274,23 @@ class ProjectionDataModule(pl.LightningDataModule):
             raise FileNotFoundError(
                 f"Protein-molecule pairs (val) not found: {self.config.chem.protein_molecule_pairs_val_path}."
             )
-        if not os.path.exists(self.config.chem.protein_embedding_path):
+        pocket_mode = getattr(self.config.model, "encoder_type", None) == "pocket"
+
+        if not pocket_mode and not os.path.exists(self.config.chem.protein_embedding_path):
             raise FileNotFoundError(
                 f"Protein embeddings not found: {self.config.chem.protein_embedding_path}."
             )
         if not os.path.exists(self.config.chem.synthetic_pathways_path):
             raise FileNotFoundError(
                 f"Synthetic pathways not found: {self.config.chem.synthetic_pathways_path}."
+            )
+        if pocket_mode and not getattr(self.config.chem, "pocket_dir", None):
+            raise FileNotFoundError(
+                "encoder_type is 'pocket' but config.chem.pocket_dir is not set."
+            )
+        if pocket_mode and not os.path.exists(self.config.chem.pocket_dir):
+            raise FileNotFoundError(
+                f"Pocket directory not found: {self.config.chem.pocket_dir}."
             )
 
         with open(self.config.chem.rxn_matrix, "rb") as f:
@@ -249,10 +307,17 @@ class ProjectionDataModule(pl.LightningDataModule):
             protein_molecule_pairs_val = pd.read_csv(f).to_numpy()
             print(len(protein_molecule_pairs_val), "\t", "protein-molecule pairs (val)")
 
-        # Always map_location="cpu" so that these embeddings live on CPU
-        with open(self.config.chem.protein_embedding_path, "rb") as f:
-            protein_embeddings = torch.load(f, map_location=torch.device("cpu"))
-            print(len(protein_embeddings), "\t", "protein embeddings (loaded on CPU)")
+        pockets = None
+        protein_embeddings = None
+        if pocket_mode:
+            # Pocket-conditioned training: pocket-only, no ESM embeddings.
+            pockets = load_pockets(self.config.chem.pocket_dir)
+            print(len(pockets), "\t", "pockets (loaded from", self.config.chem.pocket_dir, ")")
+        else:
+            # Always map_location="cpu" so that these embeddings live on CPU
+            with open(self.config.chem.protein_embedding_path, "rb") as f:
+                protein_embeddings = torch.load(f, map_location=torch.device("cpu"))
+                print(len(protein_embeddings), "\t", "protein embeddings (loaded on CPU)")
 
         with open(self.config.chem.synthetic_pathways_path, "rb") as f:
             synthetic_pathways = torch.load(f, map_location=torch.device("cpu"))
@@ -266,6 +331,7 @@ class ProjectionDataModule(pl.LightningDataModule):
             synthetic_pathways=synthetic_pathways,
             virtual_length=len(protein_molecule_pairs_train),
             fp_option=self.config.chem.fp_option,
+            pockets=pockets,
             **self.dataset_options,
         )
 
@@ -277,6 +343,7 @@ class ProjectionDataModule(pl.LightningDataModule):
             synthetic_pathways=synthetic_pathways,
             virtual_length=self.batch_size,
             fp_option=self.config.chem.fp_option,
+            pockets=pockets,
             **self.dataset_options,
         )
 

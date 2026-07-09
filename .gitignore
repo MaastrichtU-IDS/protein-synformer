@@ -181,3 +181,10 @@ logs_*.txt
 boltz_in/
 boltz_out/
 .tools/
+
+.venv*/
+boltz_batch_in/
+boltz_out/
+smina.static
+logs/
+*.log

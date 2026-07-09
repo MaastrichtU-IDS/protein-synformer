@@ -118,9 +118,11 @@ def main(
     # Resume checkpoint if specified
     if resume:
         print("Resuming from checkpoint:", resume)
-        # Load to CPU unless we actually have CUDA; the pretrained ckpt was saved on GPU,
-        # so map_location=None would try to deserialize onto CUDA (fails on CPU/MPS machines).
-        ckpt = torch.load(resume, map_location=None if torch.cuda.is_available() else "cpu")
+        # Always deserialize the warm-start checkpoint onto CPU: it may have been saved on any
+        # device (MPS on the Mac, CUDA on the box), and map_location=None would try to restore
+        # onto that original device and fail cross-machine. We only read the state_dict and copy
+        # selected keys via load_state_dict below; the Trainer places the model on-device after.
+        ckpt = torch.load(resume, map_location="cpu")
         state_dict = ckpt["state_dict"]
         filtered_state_dict = {
             k: v

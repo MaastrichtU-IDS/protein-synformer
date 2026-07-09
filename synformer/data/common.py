@@ -28,6 +28,10 @@ class ProjectionData(TypedDict, total=False):
     '''
     protein_embeddings: torch.Tensor
     protein_padding_mask: torch.Tensor
+    pocket_ca: torch.Tensor
+    pocket_cb: torch.Tensor
+    pocket_restype: torch.Tensor
+    pocket_padding_mask: torch.Tensor
     # Decoder
     token_types: torch.Tensor
     rxn_indices: torch.Tensor
@@ -48,6 +52,10 @@ class ProjectionBatch(TypedDict, total=False):
     '''
     protein_embeddings: torch.Tensor
     protein_padding_mask: torch.Tensor
+    pocket_ca: torch.Tensor
+    pocket_cb: torch.Tensor
+    pocket_restype: torch.Tensor
+    pocket_padding_mask: torch.Tensor
     # Decoder
     token_types: torch.Tensor
     rxn_indices: torch.Tensor
