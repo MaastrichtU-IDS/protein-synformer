@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 
 @dataclass
 class EnrichWeights:
@@ -55,3 +57,27 @@ def compute_enrichment_weights(
     bb = _weights_for_axis([w[0] for w in winners], [p[0] for p in pool], w_max, eps)
     tpl = _weights_for_axis([w[1] for w in winners], [p[1] for p in pool], w_max, eps)
     return EnrichWeights(bb=bb, tpl=tpl)
+
+
+def reaction_log_bias(n_templates: int, weights: "EnrichWeights | None") -> np.ndarray:
+    bias = np.zeros(n_templates, dtype=np.float32)
+    if weights is None or not weights.tpl:
+        return bias
+    for i, w in weights.tpl.items():
+        if 0 <= i < n_templates:
+            bias[i] = np.log(w)
+    return bias
+
+
+def reactant_log_bias(retrieved_indices: np.ndarray, weights: "EnrichWeights | None") -> np.ndarray:
+    bias = np.zeros(retrieved_indices.shape, dtype=np.float32)
+    if weights is None or not weights.bb:
+        return bias
+    # vectorised lookup: map each retrieved index to log(w) or 0
+    flat = retrieved_indices.reshape(-1)
+    out = np.zeros(flat.shape, dtype=np.float32)
+    for j, idx in enumerate(flat):
+        w = weights.bb.get(int(idx))
+        if w is not None:
+            out[j] = np.log(w)
+    return out.reshape(retrieved_indices.shape)

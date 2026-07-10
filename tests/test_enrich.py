@@ -1,5 +1,7 @@
+import numpy as np
 from synformer.molopt.enrich import (
     EnrichWeights, molecule_index_sets, compute_enrichment_weights,
+    reaction_log_bias, reactant_log_bias,
 )
 
 
@@ -34,3 +36,29 @@ def test_enrichment_weight_clipped_to_wmax_and_floored_at_one():
 def test_empty_winners_gives_uniform_weights():
     w = compute_enrichment_weights([], [(frozenset({1}), frozenset())])
     assert w.bb == {} and w.tpl == {}
+
+
+def test_reaction_log_bias_none_is_zero():
+    b = reaction_log_bias(5, None)
+    assert b.shape == (5,) and np.allclose(b, 0.0)
+
+
+def test_reaction_log_bias_sets_log_weight_for_enriched_templates():
+    w = EnrichWeights(bb={}, tpl={2: np.e})  # log(e)=1
+    b = reaction_log_bias(4, w)
+    assert np.allclose(b, [0.0, 0.0, 1.0, 0.0])
+
+
+def test_reactant_log_bias_present_index_gets_weight_absent_is_zero():
+    # retrieved BBs: rows are batch, cols are the top-k retrieved for the step
+    idx = np.array([[10, 11], [12, 10]])
+    w = EnrichWeights(bb={10: np.e}, tpl={})  # only BB 10 up-weighted
+    b = reactant_log_bias(idx, w)
+    assert np.allclose(b, [[1.0, 0.0], [0.0, 1.0]])
+
+
+def test_reactant_log_bias_absent_bb_has_no_effect():
+    # BB 99 is up-weighted but never retrieved -> bias stays all-zero
+    idx = np.array([[10, 11]])
+    w = EnrichWeights(bb={99: 5.0}, tpl={})
+    assert np.allclose(reactant_log_bias(idx, w), 0.0)
