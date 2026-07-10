@@ -66,7 +66,6 @@ class ProjectionBatch(TypedDict, total=False):
     rxn_seq: Sequence[Sequence[Reaction | None]]
 
 
-'''
 def featurize_stack_actions(
     mol_idx_seq: Sequence[int | None],
     rxn_idx_seq: Sequence[int | None],
@@ -104,6 +103,7 @@ def featurize_stack(stack: Stack, end_token: bool, fpindex: FingerprintIndex) ->
     )
 
 
+'''
 def create_data(
     product: Molecule,
     mol_seq: Sequence[Molecule],
