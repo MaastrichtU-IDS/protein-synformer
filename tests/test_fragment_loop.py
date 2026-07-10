@@ -3,6 +3,7 @@ import pathlib
 
 from scripts.fragment_loop import select_topk_seeds, select_random_seeds
 import scripts.fragment_loop as fl
+import scripts.optimize_loop as ol
 
 
 def test_select_topk_seeds_takes_strongest():
@@ -42,7 +43,7 @@ def test_run_arm_control_b_never_seeds_and_treatment_seeds_topk(tmp_path, monkey
             json.dumps({"smiles": s, "bb": [1], "tpl": [1]}) for s in ["P", "Q", "R"]))
     monkeypatch.setattr(fl, "run_analog_generation", fake_analog)
     monkeypatch.setattr(fl, "run_pocket_generation", fake_pocket)
-    monkeypatch.setattr(fl, "passes_gate", lambda s, sa_max=4.0: True)
+    monkeypatch.setattr(ol, "passes_gate", lambda s, sa_max=4.0: True)
     monkeypatch.setattr(fl, "dock", lambda spec, smi, seed=0: {"X": -9.0, "Y": -5.0, "Z": -3.0,
                                                                "P": -8.0, "Q": -4.0, "R": -2.0}[smi])
     # shared round-0 scores (docked once in main, passed into every arm)

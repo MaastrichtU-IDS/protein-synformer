@@ -14,11 +14,10 @@ from rdkit import Chem
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from scripts.optimize_loop import (  # reused, do not duplicate
-    dock_budget, read_candidates, select_winners,
+    dock_budget, gate_and_dedup, read_candidates, select_winners,
 )
 from synformer.dock.dock import dock
 from synformer.dock.receptor import prepare_target
-from synformer.molopt.enrich import passes_gate
 
 
 def select_topk_seeds(scored: dict[str, float], k: int) -> list[str]:
@@ -30,20 +29,6 @@ def select_random_seeds(scored: dict[str, float], k: int, seed: int) -> list[str
     rng = random.Random(seed)
     rng.shuffle(pool)
     return pool[:k]
-
-
-def gate_and_dedup(records: list[dict], sa_max: float = 4.0) -> list[dict]:
-    # Local (not scripts.optimize_loop.gate_and_dedup): bound to the module-level
-    # `passes_gate` above so tests can monkeypatch scripts.fragment_loop.passes_gate.
-    out, seen = [], set()
-    for r in records:
-        smi = r["smiles"]
-        if smi in seen:
-            continue
-        if passes_gate(smi, sa_max=sa_max):
-            seen.add(smi)
-            out.append(r)
-    return out
 
 
 def round_dir(base, target, arm, r) -> pathlib.Path:
