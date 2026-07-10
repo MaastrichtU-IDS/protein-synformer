@@ -85,7 +85,8 @@ def main(boltz_scores, dock_scores, inputs, targets, out):
     cmp_raw = compare_matrices(B, D)
 
     print("=== Boltz matrix (affinity_pred) ===")
-    print(f"{'hit\\prot':12}" + "".join(f"{t:>10}" for t in target_ids))
+    hdr = "hit\\prot"
+    print(f"{hdr:12}" + "".join(f"{t:>10}" for t in target_ids))
     for i, ti in enumerate(target_ids):
         print(f"{ti:12}" + "".join(f"{B[i,j]:10.2f}" for j in range(n)))
     print(f"\nBOLTZ  raw : delta={braw['delta']:.3f} win={braw['win_rate']:.2f}")
