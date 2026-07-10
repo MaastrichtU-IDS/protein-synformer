@@ -35,3 +35,31 @@ def test_next_weights_promotes_winner_building_blocks():
     w = next_weights(["A", "B"], recs, w_max=5.0)
     assert w["bb"].get("1", 1.0) > 1.0
     assert "9" not in w["bb"]
+
+
+import json, pathlib
+import scripts.optimize_loop as ol
+
+
+def test_is_round_done_requires_nonempty_scores(tmp_path):
+    d = tmp_path / "r0"; d.mkdir()
+    assert ol.is_round_done(d) is False
+    (d / "dock_scores.csv").write_text("")
+    assert ol.is_round_done(d) is False
+    (d / "dock_scores.csv").write_text("smiles,score\nA,-7\n")
+    assert ol.is_round_done(d) is True
+
+
+def test_run_arm_resumes_and_uniform_uses_no_weights(tmp_path, monkeypatch):
+    # stub generation: write a fixed candidate file; record the weights arg seen each round
+    seen_weights = []
+    def fake_gen(ckpt, target, weights_path, n, seed, out_path, python=None):
+        seen_weights.append(pathlib.Path(weights_path).name if weights_path not in (None, "NONE") else "NONE")
+        pathlib.Path(out_path).write_text(
+            "\n".join(json.dumps({"smiles": s, "bb": [1], "tpl": [1]}) for s in ["A", "B", "C"]))
+    monkeypatch.setattr(ol, "run_generation", fake_gen)
+    monkeypatch.setattr(ol, "passes_gate", lambda s, sa_max=4.0: True)
+    monkeypatch.setattr(ol, "dock", lambda spec, smi, seed=0: {"A": -9.0, "B": -5.0, "C": -3.0}[smi])
+    ol.run_arm(ckpt="x", target="T", arm="uniform", spec=None, rounds=2, budget=3, n=3, k=1,
+               seed=1, out_dir=tmp_path)
+    assert seen_weights == ["NONE", "NONE"]  # uniform never enriches
