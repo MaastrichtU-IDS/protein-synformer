@@ -1,7 +1,7 @@
 import numpy as np
 from synformer.molopt.enrich import (
     EnrichWeights, molecule_index_sets, compute_enrichment_weights,
-    reaction_log_bias, reactant_log_bias,
+    reaction_log_bias, reactant_log_bias, passes_gate, sa_score,
 )
 
 
@@ -62,3 +62,25 @@ def test_reactant_log_bias_absent_bb_has_no_effect():
     idx = np.array([[10, 11]])
     w = EnrichWeights(bb={99: 5.0}, tpl={})
     assert np.allclose(reactant_log_bias(idx, w), 0.0)
+
+
+def test_gate_rejects_invalid_smiles():
+    assert passes_gate("not_a_smiles") is False
+
+
+def test_gate_rejects_too_small():
+    assert passes_gate("CCO") is False  # 3 heavy atoms < MIN_HEAVY_ATOMS
+
+
+def test_gate_rejects_disallowed_element():
+    # a boron-containing molecule large enough otherwise
+    assert passes_gate("B1OC2=CC=CC=C2O1" * 1) is False
+
+
+def test_gate_accepts_drug_like():
+    # ibuprofen: 15 heavy atoms, CHO only, low SA
+    assert passes_gate("CC(C)Cc1ccc(cc1)C(C)C(=O)O") is True
+
+
+def test_sa_score_finite_for_valid():
+    assert sa_score("CC(C)Cc1ccc(cc1)C(C)C(=O)O") < 4.0

@@ -81,3 +81,36 @@ def reactant_log_bias(retrieved_indices: np.ndarray, weights: "EnrichWeights | N
         if w is not None:
             out[j] = np.log(w)
     return out.reshape(retrieved_indices.shape)
+
+
+import os
+import sys
+
+from rdkit import Chem
+from rdkit.Chem import RDConfig
+
+sys.path.append(os.path.join(RDConfig.RDContribDir, "SA_Score"))
+import sascorer  # noqa: E402
+
+from scripts.dock_prepare import MIN_HEAVY_ATOMS  # noqa: E402
+
+ALLOWED_ELEMENTS = {"C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"}
+
+
+def sa_score(smiles: str) -> float:
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return float("inf")
+    return float(sascorer.calculateScore(mol))
+
+
+def passes_gate(smiles: str, sa_max: float = 4.0) -> bool:
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return False
+    if mol.GetNumHeavyAtoms() < MIN_HEAVY_ATOMS:
+        return False
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() not in ALLOWED_ELEMENTS:
+            return False
+    return sa_score(smiles) <= sa_max
