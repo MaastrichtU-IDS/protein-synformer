@@ -73,8 +73,9 @@ def test_gate_rejects_too_small():
 
 
 def test_gate_rejects_disallowed_element():
-    # a boron-containing molecule large enough otherwise
-    assert passes_gate("B1OC2=CC=CC=C2O1" * 1) is False
+    # triphenylborane: 19 heavy atoms (>= MIN_HEAVY_ATOMS) so it clears the size
+    # gate and is rejected specifically for the disallowed boron atom
+    assert passes_gate("B(c1ccccc1)(c1ccccc1)c1ccccc1") is False
 
 
 def test_gate_accepts_drug_like():
