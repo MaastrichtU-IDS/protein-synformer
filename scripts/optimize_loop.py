@@ -118,7 +118,9 @@ def run_arm(ckpt, target, arm, spec, rounds, budget, n, k, seed, out_dir,
         all_scores.update(scored)
         winners = select_winners(scored, k)
         if arm == "enrich":
-            nw = next_weights(winners, recs)
+            # enrichment denominator is the DOCKED pool, not the full gated pool
+            docked_recs = [r for r in recs if r["smiles"] in scored]
+            nw = next_weights(winners, docked_recs)
             wp = rd / "weights_next.json"; wp.write_text(json.dumps(nw))
             weights_path = str(wp)
         if summary_rows is not None:

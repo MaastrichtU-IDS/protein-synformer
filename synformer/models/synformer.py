@@ -10,7 +10,7 @@ from synformer.chem.mol import Molecule
 from synformer.chem.reaction import Reaction
 from synformer.chem.stack import Stack
 from synformer.data.common import ProjectionBatch, TokenType
-from synformer.molopt.enrich import reaction_log_bias, reactant_log_bias
+from synformer.molopt.enrich import EnrichWeights, reaction_log_bias, reactant_log_bias
 
 from .classifier_head import ClassifierHead
 from .decoder import Decoder
