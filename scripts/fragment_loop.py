@@ -63,7 +63,7 @@ def _scaffold_diversity(smiles_list) -> float:
 
 
 def run_arm(arm, target, spec, ckpt_analog, ckpt_pocket, rounds, budget, k, n, seed,
-            out_dir, round0_scores, summary_rows):
+            out_dir, round0_scores, summary_rows, final_m=10):
     # round 0 is shared across arms (docked once in main); seed selection reads it
     all_scores = dict(round0_scores)
     for r in range(rounds):
@@ -100,7 +100,7 @@ def run_arm(arm, target, spec, ckpt_analog, ckpt_pocket, rounds, budget, k, n, s
             "top10_mean": sum(top10) / len(top10) if top10 else float("nan"),
             "scaffold_div": _scaffold_diversity(list(scored)),
         })
-    return select_winners(all_scores, k)
+    return select_winners(all_scores, final_m)
 
 
 @click.command()
@@ -134,7 +134,7 @@ def main(targets, analog_ckpt, pocket_ckpt, arms, rounds, budget, k, n, final_m,
         round0_scores = dock_budget([{"smiles": s} for s in r0], spec, dock, budget, seed)
         for arm in arm_list:
             final = run_arm(arm, tid, spec, analog_ckpt, pocket_ckpt, rounds, budget, k, n, seed,
-                            out_dir, round0_scores, rows)
+                            out_dir, round0_scores, rows, final_m=final_m)
             fdir = pathlib.Path(out_dir) / tid / arm
             fdir.mkdir(parents=True, exist_ok=True)
             (fdir / "final_topM.smi").write_text("\n".join(final[:final_m]))

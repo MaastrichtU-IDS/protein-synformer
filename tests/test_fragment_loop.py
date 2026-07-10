@@ -53,8 +53,11 @@ def test_run_arm_control_b_never_seeds_and_treatment_seeds_topk(tmp_path, monkey
                round0_scores=round0_scores, summary_rows=[])
     assert calls["pocket"] == 1 and calls["analog_seeds"] == []      # control_b never analogs
     calls["pocket"] = 0
-    fl.run_arm(arm="treatment", target="T", spec=None, ckpt_analog="a", ckpt_pocket="p",
-               rounds=1, budget=3, k=2, n=3, seed=1, out_dir=tmp_path,
-               round0_scores=round0_scores, summary_rows=[])
+    final = fl.run_arm(arm="treatment", target="T", spec=None, ckpt_analog="a", ckpt_pocket="p",
+                       rounds=1, budget=3, k=2, n=3, seed=1, out_dir=tmp_path,
+                       round0_scores=round0_scores, summary_rows=[], final_m=4)
     # treatment seeds on the top-2 shared round-0 dockers: S2(-8.5), S1(-7.0)
     assert calls["analog_seeds"] and calls["analog_seeds"][0] == ["S2", "S1"]
+    # final_topM honors final_m (=4), NOT the seed-count k (=2): all_scores has 6 mols
+    # ({S0,S1,S2} round-0 + {X,Y,Z} docked) -> top-4 by strongest score
+    assert len(final) == 4 and final[0] == "X"  # X(-9.0) strongest
