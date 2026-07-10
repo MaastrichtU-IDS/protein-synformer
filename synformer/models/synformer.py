@@ -10,6 +10,7 @@ from synformer.chem.mol import Molecule
 from synformer.chem.reaction import Reaction
 from synformer.chem.stack import Stack
 from synformer.data.common import ProjectionBatch, TokenType
+from synformer.molopt.enrich import reaction_log_bias, reactant_log_bias
 
 from .classifier_head import ClassifierHead
 from .decoder import Decoder
@@ -326,6 +327,7 @@ class Synformer(nn.Module):
         temperature_token: float = 1.0,
         temperature_reaction: float = 1.0,
         temperature_reactant: float = 1.0,
+        enrich_weights: "EnrichWeights | None" = None,
         **options,
     ):
         code, code_padding_mask, _ = self.encode(batch)
@@ -362,21 +364,29 @@ class Synformer(nn.Module):
             token_next = pred.token_sampled
             token_types = torch.cat([token_types, token_next], dim=-1)
 
-            # Reaction
+            # Reaction (with optional enrichment log-bias, post-temperature)
+            rxn_logits = pred.reaction_logits / temperature_reaction
+            rxn_bias = torch.from_numpy(
+                reaction_log_bias(rxn_logits.shape[-1], enrich_weights)
+            ).to(rxn_logits)
             rxn_idx_next = torch.multinomial(
-                torch.nn.functional.softmax(pred.reaction_logits / temperature_reaction, dim=-1),
+                torch.nn.functional.softmax(rxn_logits + rxn_bias, dim=-1),
                 num_samples=1,
             )[..., 0]
             rxn_indices = torch.cat([rxn_indices, rxn_idx_next[..., None]], dim=-1)
             for b, idx in enumerate(rxn_idx_next):
                 reactions[b].append(rxn_matrix.reactions[int(idx.item())])
 
-            # Reactant (building block)
+            # Reactant (building block); enrichment biases SELECTION among retrieved BBs
             fp_scores = (
                 torch.from_numpy(1.0 / (pred.retrieved_reactants.distance + 1e-4)).to(reactant_fps).reshape(bsz, -1)
             )
+            react_logits = fp_scores / temperature_reactant
+            react_bias = torch.from_numpy(
+                reactant_log_bias(pred.retrieved_reactants.indices.reshape(bsz, -1), enrich_weights)
+            ).to(react_logits)
             fp_idx_next = torch.multinomial(
-                torch.nn.functional.softmax(fp_scores / temperature_reactant, dim=-1),
+                torch.nn.functional.softmax(react_logits + react_bias, dim=-1),
                 num_samples=1,
             )[..., 0]
 

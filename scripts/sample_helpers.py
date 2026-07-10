@@ -138,7 +138,8 @@ def sample_pocket(
         repeat=1,
         temperature_token=1.0,
         temperature_reactant=0.1,
-        temperature_reaction=1.0
+        temperature_reaction=1.0,
+        enrich_weights=None
     ):
     """Pocket-conditioned analogue of sample(): feeds pocket_* fields instead of protein_embeddings.
     `pockets` is a dict {target_id -> {"ca","cb","restype"}} (e.g. from load_pockets)."""
@@ -150,7 +151,8 @@ def sample_pocket(
             fpindex=fpindex,
             temperature_token=temperature_token,
             temperature_reactant=temperature_reactant,
-            temperature_reaction=temperature_reaction
+            temperature_reaction=temperature_reaction,
+            enrich_weights=enrich_weights
         )
         ll = model.get_log_likelihood(
             code=result.code,
