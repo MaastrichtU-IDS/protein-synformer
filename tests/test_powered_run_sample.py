@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 from scripts.powered_run import _sample_mismatch
 
 
@@ -20,3 +24,18 @@ def test_sample_k_ge_pool_returns_all():
     ok = ["A", "B", "C"]
     s = _sample_mismatch("A", ok, k=10, seed=1)
     assert s[0] == "A" and set(s) == {"A", "B", "C"} and len(s) == 3
+
+
+def _run(hashseed):
+    code = ("from scripts.powered_run import _sample_mismatch;"
+            "print(_sample_mismatch('T3', [f'T{i}' for i in range(20)], 5, 42))")
+    return subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True,
+        env={**os.environ, "PYTHONHASHSEED": hashseed},
+    ).stdout
+
+
+def test_sample_reproducible_across_process_hashseed():
+    # tuple/string-hash seeding is salted by PYTHONHASHSEED and would differ across
+    # processes; a deterministic string seed must produce identical output regardless.
+    assert _run("0") == _run("1")

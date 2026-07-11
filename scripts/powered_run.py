@@ -55,7 +55,7 @@ def _sample_mismatch(tid, ok_ids, k, seed):
     others = [t for t in ok_ids if t != tid]
     if k >= len(others):
         return [tid] + others
-    rng = random.Random((seed, tid))
+    rng = random.Random(f"{seed}:{tid}")
     return [tid] + rng.sample(others, k)
 
 
@@ -195,7 +195,7 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     # will idempotent-skip via `done` — kept simple rather than special-cased.)
     for t in sources:
         tid = t["target_id"]
-        pockets = _sample_mismatch(tid, ok_ids, mismatch_sample, seed) if mismatch_sample else ok_ids
+        pockets = _sample_mismatch(tid, ok_ids, mismatch_sample, seed) if mismatch_sample is not None else ok_ids
         for pk in pockets:
             spec_pk = holo[pk]
             for smi in top_m_smiles[tid]:
