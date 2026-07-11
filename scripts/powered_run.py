@@ -70,6 +70,20 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
     done.add((smiles, pocket))
 
 
+def _select_sources(ok, sources_opt, source_shard):
+    """Select the SOURCE targets (a subset of `ok`) that this run's own-pocket/mismatch/AF
+    phases should dock, via --sources (explicit target_id list) or --source-shard 'i/n'
+    (index%n==i). Defaults to all of `ok` (unsharded full run). Pure/no I/O so it's directly
+    unit-testable, e.g. for shard-partition correctness (n shards disjointly cover `ok`)."""
+    if sources_opt:
+        want = {s.strip() for s in sources_opt.split(",")}
+        return [t for t in ok if t["target_id"] in want]
+    if source_shard:
+        si, sn = (int(x) for x in source_shard.split("/"))
+        return [t for k, t in enumerate(ok) if k % sn == si]
+    return ok
+
+
 @click.command()
 @click.option("--targets", default="data/dock/powered_targets.json")
 @click.option("--scores", default="data/dock/dock_scores.csv")
@@ -106,8 +120,11 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
               help="If set, dock each source's top-M into its OWN pocket + this many random mismatch "
                    "pockets (seeded), instead of ALL pockets. Makes the run linear, not quadratic; "
                    "powered_analyze's nan-aware per-column z handles the resulting sparse matrix.")
+@click.option("--skip-af", "skip_af", is_flag=True, default=False,
+              help="Skip the AF arm entirely (AF rendering of every pocket + full all-pairs AF "
+                   "docking). Use for a crystal-only pass; default preserves the AF arm.")
 def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed,
-         limit_targets, source_shard, work_dir, sources_opt, candidates_dir, mismatch_sample):
+         limit_targets, source_shard, work_dir, sources_opt, candidates_dir, mismatch_sample, skip_af):
     dock_select.set_candidates_dir(candidates_dir)
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     device = torch.device("cpu")
@@ -149,10 +166,21 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     json.dump({"targets": ok_ids, "mode": "all_pairs", "seed": seed}, open(matrix_out, "w"), indent=2)
     print(f"all-pairs matrix targets (N={len(ok_ids)}): {ok_ids}", flush=True)
 
-    # ---- crystal own-pocket docking + top-M selection ----
+    # ---- source sharding (parallel runs): dock only these SOURCE targets. Computed up front
+    # (before own-pocket docking) so a shard only own-pocket-docks its own sources, not all of
+    # `ok` — avoiding N-shard redundant own-pocket work for a sharded run. ----
+    sources = _select_sources(ok, sources_opt, source_shard)
+    if sources_opt:
+        print(f"--sources: {[t['target_id'] for t in sources]} -> own-pocket + all {len(ok_ids)} "
+              f"pockets for mismatch", flush=True)
+    elif source_shard:
+        print(f"source-shard {source_shard}: {len(sources)}/{len(ok)} source targets -> own-pocket "
+              f"+ all {len(ok_ids)} pockets for mismatch", flush=True)
+
+    # ---- crystal own-pocket docking + top-M selection (SOURCES only) ----
     done = _done_pairs(scores)
     top_m_smiles = {}
-    for i, t in enumerate(ok):
+    for i, t in enumerate(sources):
         tid = t["target_id"]
         spec = holo[tid]
         cands = _load_candidates(tid, n_candidates)
@@ -178,18 +206,6 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         top_m_smiles[tid] = select_topm_for_target(own, top_m)
         print(f"  {tid}: own-pocket ready, top-{len(top_m_smiles[tid])} selected", flush=True)
 
-    # ---- source sharding (parallel runs): dock only these SOURCE targets into ALL pockets ----
-    sources = ok
-    if sources_opt:
-        want = {s.strip() for s in sources_opt.split(",")}
-        sources = [t for t in ok if t["target_id"] in want]
-        print(f"--sources: {[t['target_id'] for t in sources]} -> all {len(ok_ids)} pockets", flush=True)
-    elif source_shard:
-        si, sn = (int(x) for x in source_shard.split("/"))
-        sources = [t for k, t in enumerate(ok) if k % sn == si]
-        print(f"source-shard {si}/{sn}: {len(sources)}/{len(ok)} source targets -> all "
-              f"{len(ok_ids)} pockets", flush=True)
-
     # ---- crystal all-pairs mismatch: every SOURCE target's top-M into EVERY prepped pocket ----
     # (pk == tid, i.e. the diagonal, is already covered by own-pocket docking above and
     # will idempotent-skip via `done` — kept simple rather than special-cased.)
@@ -203,36 +219,41 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
         print(f"  {tid}: crystal mismatch done ({len(pockets)} pockets)", flush=True)
 
     # ---- AF arm: AF-render ALL prepped pockets, dock every source's top-M into every AF
-    # pocket whose prep succeeded ----
-    af_done = _done_pairs(af_scores)
-    af_pockets = ok_ids
-    af_spec = {}
-    for pk in af_pockets:
-        acc = pk.split("_")[0]
-        try:
-            r = prepare_af_target(acc, holo[pk], f"{work_dir}/af/{pk}")
-            af_spec[pk] = r
-            print(f"  AF {pk}: CA-RMSD {r.ca_rmsd:.2f} pocket-pLDDT {r.pocket_plddt:.1f}", flush=True)
-        except Exception as e:
-            print(f"  AF prep FAILED {pk}: {e} — skip pocket", flush=True)
-            af_spec[pk] = None
-    af_ok_pockets = [pk for pk in af_pockets if af_spec.get(pk) is not None]
-    for t in sources:
-        tid = t["target_id"]
-        for pk in af_ok_pockets:
-            for smi in top_m_smiles[tid]:
-                _dock_into(dock_fn, af_spec[pk].spec, smi, seed, tid, pk, "candidate", af_scores, af_done)
-        print(f"  {tid}: AF arm done", flush=True)
+    # pocket whose prep succeeded. Skipped entirely with --skip-af (crystal-only pass): no AF
+    # rendering, no AF docking, no af_quality_out. ----
+    if not skip_af:
+        af_done = _done_pairs(af_scores)
+        af_pockets = ok_ids
+        af_spec = {}
+        for pk in af_pockets:
+            acc = pk.split("_")[0]
+            try:
+                r = prepare_af_target(acc, holo[pk], f"{work_dir}/af/{pk}")
+                af_spec[pk] = r
+                print(f"  AF {pk}: CA-RMSD {r.ca_rmsd:.2f} pocket-pLDDT {r.pocket_plddt:.1f}", flush=True)
+            except Exception as e:
+                print(f"  AF prep FAILED {pk}: {e} — skip pocket", flush=True)
+                af_spec[pk] = None
+        af_ok_pockets = [pk for pk in af_pockets if af_spec.get(pk) is not None]
+        for t in sources:
+            tid = t["target_id"]
+            for pk in af_ok_pockets:
+                for smi in top_m_smiles[tid]:
+                    _dock_into(dock_fn, af_spec[pk].spec, smi, seed, tid, pk, "candidate", af_scores, af_done)
+            print(f"  {tid}: AF arm done", flush=True)
 
-    # record AF prep quality
-    json.dump(
-        {
-            pk: (None if r is None else {"ca_rmsd": r.ca_rmsd, "pocket_plddt": r.pocket_plddt})
-            for pk, r in af_spec.items()
-        },
-        open(af_quality_out, "w"),
-        indent=2,
-    )
+        # record AF prep quality
+        json.dump(
+            {
+                pk: (None if r is None else {"ca_rmsd": r.ca_rmsd, "pocket_plddt": r.pocket_plddt})
+                for pk, r in af_spec.items()
+            },
+            open(af_quality_out, "w"),
+            indent=2,
+        )
+    else:
+        print("--skip-af: AF arm skipped (crystal-only run)", flush=True)
+
     print("done.", flush=True)
 
 
