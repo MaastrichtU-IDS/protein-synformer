@@ -8,11 +8,13 @@ import csv
 import json
 import os
 import pathlib
+import random
 
 import click
 import pandas as pd
 import torch
 
+from scripts import dock_select
 from scripts.dock_select import (
     MASKED_CKPT,
     _import_dock,
@@ -45,6 +47,16 @@ def _append(path, row):
             w.writeheader()
         w.writerow({k: row[k] for k in COLUMNS})
         fh.flush()
+
+
+def _sample_mismatch(tid, ok_ids, k, seed):
+    """[tid] + k distinct random pockets sampled uniformly from ok_ids (excluding tid),
+    seeded by (seed, tid). If k >= len(others), degenerates to [tid] + all others."""
+    others = [t for t in ok_ids if t != tid]
+    if k >= len(others):
+        return [tid] + others
+    rng = random.Random((seed, tid))
+    return [tid] + rng.sample(others, k)
 
 
 def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, done):
@@ -88,8 +100,15 @@ def _dock_into(dock_fn, spec, smiles, seed, target, pocket, source, scores_csv, 
 @click.option("--sources", "sources_opt", default=None,
               help="Explicit comma-separated SOURCE target_ids to dock into ALL pockets (robust "
               "alternative to --source-shard; no index fragility). Overrides --source-shard.")
+@click.option("--candidates-dir", default="data/dock/candidates",
+              help="Directory of <target_id>.txt candidate files (pocket arm: data/dock/candidates_pocket).")
+@click.option("--mismatch-sample", "mismatch_sample", default=None, type=int,
+              help="If set, dock each source's top-M into its OWN pocket + this many random mismatch "
+                   "pockets (seeded), instead of ALL pockets. Makes the run linear, not quadratic; "
+                   "powered_analyze's nan-aware per-column z handles the resulting sparse matrix.")
 def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n_refs, top_m, seed,
-         limit_targets, source_shard, work_dir, sources_opt):
+         limit_targets, source_shard, work_dir, sources_opt, candidates_dir, mismatch_sample):
+    dock_select.set_candidates_dir(candidates_dir)
     dock_fn, prepare_target, _stm, _mm = _import_dock()
     device = torch.device("cpu")
     # The generation model + fingerprint index are ONLY needed to enumerate the random-REAL
@@ -176,11 +195,12 @@ def main(targets, scores, af_scores, matrix_out, af_quality_out, n_candidates, n
     # will idempotent-skip via `done` — kept simple rather than special-cased.)
     for t in sources:
         tid = t["target_id"]
-        for pk in ok_ids:
+        pockets = _sample_mismatch(tid, ok_ids, mismatch_sample, seed) if mismatch_sample else ok_ids
+        for pk in pockets:
             spec_pk = holo[pk]
             for smi in top_m_smiles[tid]:
                 _dock_into(dock_fn, spec_pk, smi, seed, tid, pk, "candidate", scores, done)
-        print(f"  {tid}: crystal all-pairs mismatch done", flush=True)
+        print(f"  {tid}: crystal mismatch done ({len(pockets)} pockets)", flush=True)
 
     # ---- AF arm: AF-render ALL prepped pockets, dock every source's top-M into every AF
     # pocket whose prep succeeded ----
