@@ -6,81 +6,95 @@
 ## The question
 
 SP-CS found score-averaging consensus doesn't beat Boltz on **known-vs-random** discrimination, and
-argued (untested) that smina's failure mode is specific to the **candidate/optimization** regime. This
-benchmark tests that directly and non-circularly:
+conjectured (untested) that smina's failure mode is specific to the **candidate/optimization** regime.
+This benchmark set out to test that: *do smina and Boltz disagree more on generated candidates than on
+real known/random molecules?*
 
-> Do smina and Boltz **disagree more on generated candidates than on real known/random molecules**?
+**Answer, after controlling for a confound: no — the apparent contrast was an artifact. But the two
+scorers do select largely different candidate top-molecules, which is the finding that matters for
+selection.**
 
 ## Method
 
-Per target, a **deterministic stratified sample** of ~30 SP-C pocket candidates across the full smina
-range (`dock_scores_pocket.csv`, 150 candidates/target → 10 strong / 10 mid / 10 weak) was co-folded
-with Boltz-2 (150/150 cells, 0 failures). Headline metric: per-target **Spearman** between smina strength
-and Boltz strength (`strength = −score`) in the **candidate regime** vs the **known/random regime**
-(reusing SP-CS's known/random smina+Boltz). 5 targets (P06537's known/random side is unavailable — SP-CS
-dropped it at 3 knowns).
+Per target, a deterministic stratified sample of ~30 SP-C pocket candidates across the full smina range
+(`dock_scores_pocket.csv`) was co-folded with Boltz-2 (150/150 cells, 0 failures). Metrics: per-target
+**Spearman** between smina and Boltz strength (`strength = −score`) in the candidate regime vs the
+known/random regime; and, on candidates, the **overlap of smina-top-5 vs Boltz-top-5** picks. 5 targets
+(P06537's known/random side unavailable — SP-CS dropped it at 3 knowns).
 
-## Result — scorers disagree far more on candidates (clean, consistent)
+## The confound — and the control that exposes it
 
-**smina↔Boltz Spearman (higher = agree):**
+Naively, candidate-regime agreement looked much lower than known/random:
 
-| target | candidate regime | known/random regime |
-|--------|------------------|---------------------|
-| O43570_WT | +0.092 | +0.721 |
-| P02753_WT | +0.175 | +0.665 |
-| P0C559_WT | +0.444 | +0.665 |
-| P10721_WT | +0.240 | +0.816 |
-| P06537_WT | +0.020 | — (no SP-CS known/random) |
-| **mean** | **+0.194** | **+0.717** |
+| | smina↔Boltz Spearman (mean) |
+|---|---|
+| candidate regime | **+0.194** |
+| known/random regime (full set) | +0.717 |
 
-**On every target with both regimes (4/4), smina↔Boltz agreement is far lower on generated candidates
-than on real known/random molecules** (mean +0.194 vs +0.717 — roughly a 4× drop). The two scorers agree
-well on what *real* molecules are, but **barely agree on what the generator produces.** This is the
-non-circular headline, and it is clean and directionally consistent across all targets.
+But the known/random set is **bimodal by construction** — real drugs (strong by both scorers) vs random
+decoys (weak by both) — so its +0.72 mostly measures the *easy, coarse* known-above-random split baked
+into the set, not fine-grained rank agreement. The candidate set has no such class structure. The honest
+control is **within-class** Spearman (range-matched), pooled over the 4 dual-regime targets:
 
-### Illustration (Boltz-referenced — see circularity note)
+| set | smina↔Boltz Spearman (mean) |
+|---|---|
+| known/random, **full (bimodal)** | +0.717 |
+| known/random, **knowns-only** | **+0.268** |
+| known/random, **randoms-only** | **+0.238** |
+| **candidate regime** | **+0.194** |
 
-- **Selection divergence:** smina's top-5 and Boltz's top-5 candidates are largely **different molecules**
-  — Jaccard overlap 0.00–0.43 (mostly ≤0.25). Selecting by smina vs Boltz picks different candidates.
-- **Hacking:** the mean Boltz percentile of the smina-top-5 is low on O43570 (0.40 — smina's best are
-  Boltz-mediocre) but middling-to-decent elsewhere (0.59–0.77). So smina-hacking of the raw SP-C pool is
-  present but not universal; it was most acute in SP-F, where the loop actively *hill-climbed* smina.
+**Within class, known/random agreement (0.24–0.27) is essentially the same as candidate agreement
+(0.19).** The +0.72 was the bimodality artifact. So there is **no evidence that scorer disagreement is
+optimization-specific** — smina and Boltz have only **modest fine-grained rank agreement (~0.2–0.27) in
+both regimes.** The originally-hypothesised "candidate regime is special" headline is **retired.**
+
+## The clean, non-circular finding — scorers pick different candidates
+
+The soundest result is symmetric and references neither scorer as truth: within each target's candidate
+pool, **smina's top-5 and Boltz's top-5 are largely different molecules.**
+
+| target | Jaccard(smina-top5, Boltz-top5) |
+|--------|--------------------------------|
+| O43570_WT | 0.00 |
+| P02753_WT | 0.11 |
+| P06537_WT | 0.11 |
+| P10721_WT | 0.25 |
+| P0C559_WT | 0.43 |
+
+Overlap is ≤0.25 on 4/5 targets (0.00 on O43570). **Which scorer you select candidates with materially
+changes the molecules chosen.** Combined with the modest fine-ranking agreement above, this says the two
+scorers genuinely diverge on *ranking generated candidates* — not more than they diverge on real
+molecules, but enough that scorer choice is consequential for selection.
 
 ## Verdict
 
-**Scorer disagreement is optimization-specific: smina and Boltz agree on real known/random molecules
-(mean ρ 0.72) but not on generated candidates (mean ρ 0.19).** This is the empirical backing SP-CS's
-interpretation lacked, and it completes the consensus-scorer arc:
+- **Retired:** "smina and Boltz disagree more on candidates than on known/random." That contrast was a
+  bimodality artifact; within-class the regimes are indistinguishable (~0.2 vs ~0.25).
+- **Supported:** smina↔Boltz fine-ranking agreement is **modest everywhere (~0.2–0.27)**, and on
+  candidates the two scorers **select largely different top-molecules (Jaccard ≤0.25).**
+- **Bottom line for selection:** scorer choice matters for *which* candidates you pick, in any regime —
+  but this benchmark does **not** show the candidate regime is special, and it does **not** establish
+  which scorer is right. The recommendation to **validate generated candidates with Boltz** rests on
+  SP-CS's *independent* evidence (Boltz AUROC 0.95 ≥ smina on known/random), not on this benchmark.
 
-- Known/random regime (SP-CS): scorers agree; Boltz alone is competent; score-averaging adds nothing.
-- Candidate regime (SP-CC): scorers **disagree sharply**, so *which* scorer you select with materially
-  changes the molecules chosen — this is precisely where an **independent scorer (Boltz) as validator /
-  selector** earns its keep.
+## Caveats
 
-Actionable, evidence-based recommendation for future generation work: **select/validate generated
-candidates with Boltz (or a Boltz-inclusive consensus), not smina alone** — smina and Boltz agree on real
-chemistry but diverge on generated candidates, exactly the molecules a generator produces.
-
-## Circularity note & caveats
-
-- The **headline (regime-contrast Spearman) is non-circular** — it only measures whether two scorers
-  agree, comparing two molecule regimes; it makes no assumption about which scorer is "right."
-- The **hacking and selection-divergence metrics use Boltz as the reference** (they assume Boltz is the
-  better scorer), so they are **illustration** of *how* the disagreement manifests, not proof that
-  Boltz-selection is correct. SP-CS's independent evidence (Boltz AUROC 0.95 ≥ smina on known/random) is
-  what justifies treating Boltz as the more trustworthy scorer.
-- **N = 5 targets** (4 with both regimes), 30 candidates/target — directional, not powered. The
-  candidate pools are smina-biased (SP-C generates smina-decent molecules), which if anything *understates*
-  the disagreement (the weakest-smina candidates that would most expose divergence are under-represented).
-- P06537's known/random regime is unavailable (SP-CS dropped it at 3 knowns); its candidate ρ (+0.02)
-  still fits the pattern.
+- Correcting the confound (within-class control) was the key step; the naive cross-regime Spearman should
+  not be cited.
+- N = 5 targets (4 with both regimes), 30 candidates/target — directional; per-target within-class ρ is
+  noisy (e.g. P02753 knowns-only −0.06).
+- Candidate pools are smina-biased (SP-C generates smina-decent molecules); the Jaccard/top-5 divergence
+  is over a restricted-quality set.
+- Hacking framing dropped: on the raw SP-C pool smina-top candidates are not systematically Boltz-weak
+  (only O43570 leaned that way); acute smina-hacking was an SP-F *hill-climbing* phenomenon, not a
+  property of the raw pool.
 
 ## Reproduce
 
-- Candidate Boltz (proxy required for MSA; `BOLTZ=.venv-boltz/bin/boltz`):
-  `env https_proxy=… .venv-boltz/bin/python -m scripts.candidate_boltz --targets <5> --n 30 \
-  --scores data/dock/sp_cc_candidate_boltz.csv`
-- Analysis: `.venv/bin/python -m scripts.candidate_agreement --candidate-boltz data/dock/sp_cc_candidate_boltz.csv \
-  --kr-boltz data/dock/sp_cs_boltz_controls.csv`
+- Candidate Boltz (proxy required; `BOLTZ=.venv-boltz/bin/boltz`):
+  `env https_proxy=… .venv-boltz/bin/python -m scripts.candidate_boltz --targets <5> --n 30 --scores data/dock/sp_cc_candidate_boltz.csv`
+- Agreement + overlap: `.venv/bin/python -m scripts.candidate_agreement --candidate-boltz data/dock/sp_cc_candidate_boltz.csv --kr-boltz data/dock/sp_cs_boltz_controls.csv`
+- Within-class control: per target, `spearmanr(−smina, −boltz)` on knowns-only and randoms-only from
+  `dock_scores.csv` ⋈ `sp_cs_boltz_controls.csv` (the numbers in the confound table).
 
 Artifacts: `data/dock/sp_cc_candidate_boltz.csv`, `scripts/candidate_boltz.py`, `scripts/candidate_agreement.py`.

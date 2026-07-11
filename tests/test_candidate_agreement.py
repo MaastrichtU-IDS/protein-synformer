@@ -25,3 +25,20 @@ def test_selection_overlap_jaccard():
                        "smina": [-9, -8, -2, -1], "boltz": [-1, -2, -8, -9]})
     o = selection_overlap(df, k=2)["A"]
     assert o["smina_vs_boltz"] == 0.0
+
+
+def test_within_class_spearman_neutralises_bimodality():
+    import pandas as pd
+    from scripts.candidate_agreement import within_class_spearman
+    # full set is bimodal (knowns strong, randoms weak) -> full Spearman high;
+    # but WITHIN knowns the two scorers are anti-correlated -> within-class low/negative.
+    rows = []
+    for i, (s, b) in enumerate([(-9, -3), (-8, -4), (-7, -5)]):   # knowns: smina strong, boltz DISAGREES
+        rows.append(("T", f"k{i}", True, s, b))
+    for i, (s, b) in enumerate([(-2, -9), (-1, -8), (-3, -7)]):   # randoms: also internally disagreeing
+        rows.append(("T", f"r{i}", False, s, b))
+    df = pd.DataFrame(rows, columns=["target", "molecule", "is_known", "smina", "boltz"])
+    wc = within_class_spearman(df)
+    # within knowns, -smina rises while -boltz falls -> negative within-class rho (not the inflated full value)
+    assert wc["known"]["per_target"]["T"] < 0.5
+    assert "random" in wc and "mean" in wc["known"]

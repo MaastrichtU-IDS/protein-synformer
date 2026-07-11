@@ -60,6 +60,20 @@ def selection_overlap(frame, k: int = 5) -> dict:
     return out
 
 
+def within_class_spearman(kr_frame) -> dict:
+    """Range-matched control: per-target smina<->Boltz Spearman WITHIN knowns-only and WITHIN
+    randoms-only (kr_frame has an `is_known` column). Neutralises the known-vs-random bimodality
+    that inflates the full-set Spearman. Returns {class: {per_target, mean}}."""
+    import numpy as np
+    out = {}
+    for cls, is_k in (("known", True), ("random", False)):
+        sub = kr_frame[kr_frame.is_known == is_k]
+        per = spearman_by_target(sub)
+        finite = [v for v in per.values() if v == v]
+        out[cls] = {"per_target": per, "mean": float(np.mean(finite)) if finite else float("nan")}
+    return out
+
+
 def regime_contrast(candidate_frame, knownrandom_frame) -> dict:
     cand = spearman_by_target(candidate_frame)
     kr = spearman_by_target(knownrandom_frame)
@@ -84,12 +98,17 @@ def main(candidate_boltz, pocket_scores, kr_boltz, dock_scores, targets):
     tlist = [t.strip() for t in targets.split(",")]
     cand = load_candidates(pocket_scores, tlist).merge(_load_candidate_boltz(candidate_boltz),
                                                        on=["target", "molecule"], how="inner")
-    kr = build_frame(load_smina(dock_scores, tlist), load_boltz(kr_boltz))  # known/random regime
+    kr = build_frame(load_smina(dock_scores, tlist), load_boltz(kr_boltz))  # known/random regime (bimodal)
     rc = regime_contrast(cand, kr)
-    print("REGIME CONTRAST — smina<->Boltz Spearman (higher = agree):")
+    print("REGIME CONTRAST — smina<->Boltz Spearman (NAIVE; known/random side is bimodal -> inflated):")
     for t, e in sorted(rc["per_target"].items()):
         print(f"  {t:12} candidate {e['candidate']:+.3f}   known/random {e['known_random']:+.3f}")
     print(f"  MEAN         candidate {rc['mean_candidate']:+.3f}   known/random {rc['mean_known_random']:+.3f}")
+    wc = within_class_spearman(kr)
+    print("\nWITHIN-CLASS CONTROL (range-matched; the honest comparison):")
+    print(f"  knowns-only  mean {wc['known']['mean']:+.3f}   randoms-only mean {wc['random']['mean']:+.3f}"
+          f"   (candidate mean {rc['mean_candidate']:+.3f})")
+    print("  -> if within-class ~ candidate, the naive contrast is a bimodality artifact.")
     print("\nHACKING — mean Boltz percentile of smina-top-5 (low = smina-top are Boltz-weak):")
     for t, p in sorted(hacking_percentile(cand).items()):
         print(f"  {t:12} {p:.2f}")
