@@ -80,6 +80,14 @@ evidence that a cheap pilot at these settings shows **no signal worth the full r
 
 - **n=4 held-out, 1 seed, pilot hyperparameters** (β=0.1, lr 1e-5, 3 epochs, 624 pairs). Underpowered by
   design; a real negative would need more targets/seeds and a hyperparameter sweep.
+- **Pool-overlap attenuation (power caveat).** Base and DPO held-out pools share ~18/48 molecules; the
+  shared molecules contribute identical d-values to both pool means, so the DPO−base contrast is
+  mechanically diluted (~35–40%) toward zero. This is *conservative* — it strengthens the "not worth the
+  full run" call — but it means a modest effect **confined to the DPO-shifted part of the distribution**
+  would be under-detected here. The full-pool comparison remains the correct go/no-go test (we care about
+  average raw-sample quality, not the best-shifted tail), but the flatness is partly measurement dilution,
+  not purely a generalization failure. Eval docking itself was complete (100% own + 10 mismatch per molecule,
+  real affinities), so the null is not a coverage artifact.
 - Specificity pairs are **smina/shape-fit** (the signal Boltz does not corroborate at the molecule level,
   per FINDINGS) — so even a positive here would have needed the Boltz gate.
 - Thin train targets (O15229: 9 pairs) contributed noisy, possibly overfit gradients.

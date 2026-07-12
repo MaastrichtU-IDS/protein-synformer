@@ -22,8 +22,12 @@ cross-cutting scorer question (is the docking proxy trustworthy?).
 | SP-C | 3D pocket conditioning | **honest null** — paired pocket−sequence Δ −0.10 [−0.49,+0.31] (CI incl. 0); broader chemistry, no targeting | [POCKET_CONDITIONED_RESULTS](POCKET_CONDITIONED_RESULTS.md) |
 | SP-L | enrichment loop: re-bias frozen model toward docking-winners | **null** — winners use the generator's *modal* motifs; nothing distinctive to amplify (inert even at 30× weights) | [SP_L_RESULTS](SP_L_RESULTS.md) |
 | SP-F | fragment-seeding hill-climb: analog-search around best dockers | **smina win 4/5 but NOT robust** — Boltz disagreed on 3/5; the biggest smina win (P10721 −2.34) was a co-folding-refuted, diversity-collapsed **smina-hacking artifact** | [SP_F_RESULTS](SP_F_RESULTS.md) |
+| SP-DPO | **weight-update** lever: DPO fine-tune SP-C on per-molecule own-vs-mismatch specificity pairs (pilot) | **null (pilot, underpowered\*)** — the strongest-*designed* test (true held-out generalization): DPO **fit the preference in-sample** (train margin 2.97→3.49) but it **did not transfer** — held-out DPO−base own-preference split 2/2, pooled +0.08 [−0.22,+0.41] ns. ADMET unchanged. \*n=4/1-seed → inconclusive, not "cannot work" | [SP_DPO_RESULTS](SP_DPO_RESULTS.md) |
 
-**→ No generation-side lever (conditioning, motif-enrichment, or local search) confers robust targeting.**
+**→ No generation-side lever — conditioning, motif-enrichment, local search, *or weight updates* — confers
+robust targeting.** The sharpest statement of the wall is SP-DPO's: the generator **can be trained to fit
+the specificity preference in-sample, but it does not generalize** to making raw samples target-specific on
+unseen pockets. (SP-DPO is a pilot — underpowered, not a proof of impossibility.)
 
 ## B. Selection against the 3D pocket — the positive result
 
@@ -88,9 +92,14 @@ replicated*, but it should be reported as shape-fit specificity, not as validate
   method-dependent. A "select-by-Boltz, read-by-Boltz" experiment would be winner's-curse-confounded and
   adds nothing to this.
 
+**Piloted since (underpowered null):**
+- **Reward fine-tuning / DPO** of the generator — **done as a pilot (SP-DPO): null but underpowered**
+  (n=4 held-out, 1 seed). DPO fit the specificity preference in-sample but did not transfer to held-out
+  raw samples. A full study (more targets/seeds, hyperparameter sweep, and a Boltz gate on any win) is the
+  remaining way to firm this from "no pilot signal" to a real negative — but the pilot showed no signal
+  worth that ~7-day cost.
+
 **Highest value, genuinely untried:**
-- **Reward fine-tuning / DPO** of the generator (SP-L/SP-F were frozen-model — weight-update loops
-  untested; the one lever that could make the *generator* itself target-aware).
 - **Controlled Boltz-*selection* (different question):** does selecting *by* Boltz change/help which
   candidates you get, vs random and vs smina — with a random-selection baseline + same-molecule
   cross-scoring (winner's-curse-aware). Likely null, lower value; only worth it to close the loop.
