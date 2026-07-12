@@ -61,6 +61,20 @@ molecules). Boltz is the more trustworthy scorer, but its role so far has been *
 **→ The pipeline generates synthesizable, physchem-reasonable molecules with pervasive predicted safety/
 metabolic liabilities — a real drug-likeness gap the specificity work never surfaced.**
 
+## E. Calibration — is the specificity metric measuring real selectivity? (Tier-1)
+
+| study | what | result | doc |
+|---|---|---|---|
+| Tier-1 | dock **known actives**, **property-matched decoys**, and generated **candidates** into a shared panel; does the own-vs-mismatch z-delta separate real binders from decoys? | **the axis is real but modest, and only demonstrated cross-family.** Family-stratified (docking-failure pockets CA12/GTPase dropped): real actives prefer own over **cross-family** pockets more than matched decoys (Δ −0.25, CI [−0.44,−0.08] excl. 0; AUROC 0.58); **own-vs-same-family is ns** (real actives genuinely cross-react at the paralog level). smina also has a family-dependent **own-pocket affinity** signal (actives>decoys AUROC 0.66; strong kinases, chance for CA/GTPase). | [TIER1_CALIBRATION_RESULTS](TIER1_CALIBRATION_RESULTS.md) |
+
+**→ The docking-selection specificity is NOT a pure normalization artifact — it carries a real, modest
+*cross-family* signal riding on a real affinity signal. But *paralog-level* selectivity (the valuable hard
+case) is *not* demonstrated for real known binders, which puts the powered study's "holds within family"
+candidate result (−0.77) in question — that within-family candidate signal may be a selection artifact.
+The decisive test is Tier-2 (docked Δscore vs *measured* Δaffinity, incl. within-family pairs).**
+*(A first Tier-1 read wrongly concluded "falsified" from a family-clustered-panel + top-M confound;
+corrected via stratification — see the doc's correction note.)*
+
 ---
 
 ## Reconciling the two facts about the specificity: robust *within* smina, method-dependent *across* methods
@@ -100,6 +114,16 @@ replicated*, but it should be reported as shape-fit specificity, not as validate
   worth that ~7-day cost.
 
 **Highest value, genuinely untried:**
+- **Tier-2 selectivity calibration (decisive; the real next step):** correlate docked own-vs-mismatch
+  Δscore against *measured* Δaffinity (ChEMBL/BindingDB) across target pairs, **including within-family
+  (paralog) pairs**. This settles whether the docking specificity tracks real selectivity beyond the
+  modest cross-family signal Tier-1 found, and whether paralog-level selectivity is reachable at all. If
+  it does not, a **learned selectivity oracle** (trained on the Tier-2 data) becomes the credible path,
+  and a properly-grounded selection/DPO retry could finally have a real target signal. See
+  [SPECIFICITY_CALIBRATION_PROPOSAL](SPECIFICITY_CALIBRATION_PROPOSAL.md).
+- **Allosteric/regulatory-pocket conditioning:** all work conditioned on the (conserved, orthosteric)
+  catalytic pocket — the *hardest* place to be paralog-selective. The divergent allosteric site is where
+  selectivity is physically achievable; untried.
 - **Controlled Boltz-*selection* (different question):** does selecting *by* Boltz change/help which
   candidates you get, vs random and vs smina — with a random-selection baseline + same-molecule
   cross-scoring (winner's-curse-aware). Likely null, lower value; only worth it to close the loop.
