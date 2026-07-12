@@ -61,6 +61,14 @@ MASKED_CKPT = (
 
 SP2_TEST_CSV = _root / "data/protein_molecule_pairs/sp2_test.csv"
 CANDIDATES_DIR = _root / "data/dock/candidates"
+
+
+def set_candidates_dir(path):
+    """Override the directory _load_candidates reads (used by the pocket arm to avoid clobbering
+    the sequence baseline in data/dock/candidates/)."""
+    global CANDIDATES_DIR
+    CANDIDATES_DIR = pathlib.Path(path)
+
 RECEPTORS_DIR = _root / "data/dock/receptors"
 OUTPUT_DIR = _root / "data/dock"
 SCORES_CSV = OUTPUT_DIR / "dock_scores.csv"

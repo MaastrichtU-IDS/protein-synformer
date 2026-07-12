@@ -168,6 +168,16 @@ def _inspect_pdb_ligands(pdb_id: str):
     return drug_like
 
 
+# --- Candidate file writing (pure logic — unit tested) ------------------------
+def _write_candidates(out_path: Path, smiles_set) -> None:
+    """Write a candidate file: one unique SMILES per line, sorted, no blanks."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        for smi in sorted(s for s in smiles_set if s and s.strip()):
+            f.write(smi + "\n")
+
+
 # --- Modes --------------------------------------------------------------------
 @click.group()
 def cli():
@@ -292,9 +302,74 @@ def generate(repeat, n_calls, target_min, seed, only, targets_path):
             if len(smiles_set) >= target_min:
                 break
         out_path = CANDIDATES_DIR / f"{target_id}.txt"
-        with open(out_path, "w") as f:
-            for smi in sorted(smiles_set):
-                f.write(smi + "\n")
+        _write_candidates(out_path, smiles_set)
+        log.info(
+            "WROTE %s: %d unique valid SMILES (%.1fs total)",
+            out_path, len(smiles_set), time.time() - t0,
+        )
+
+
+@cli.command("generate-pocket")
+@click.option("--ckpt", required=True, help="Checkpoint to load (pocket-conditioned model).")
+@click.option("--targets", "targets_path", default="data/dock/powered_targets.json",
+              help="Targets JSON to read.")
+@click.option("--pocket-dir", default="data/pockets", help="Directory of pocket .npz files.")
+@click.option("--candidates-dir", default="data/dock/candidates_pocket",
+              help="Directory to write <target_id>.txt candidate files.")
+@click.option("--repeat", type=int, default=64, help="Batch size per sample_pocket() call.")
+@click.option("--n-calls", type=int, default=3, help="sample_pocket() calls per target.")
+@click.option("--target-min", type=int, default=150, help="Stop early once this many unique valid.")
+@click.option("--seed", type=int, default=42)
+def generate_pocket(ckpt, targets_path, pocket_dir, candidates_dir, repeat, n_calls, target_min, seed):
+    """Sample pocket-conditioned candidate SMILES for each target in the targets JSON.
+
+    Mirrors `generate` (dedup/stop-at-target_min/idempotent-skip/file-writing) but reads
+    a pocket-conditioned checkpoint and pocket features instead of protein embeddings."""
+    import torch
+
+    from scripts.sample_helpers import load_model, sample_pocket
+    from synformer.data.pocket_io import load_pockets
+
+    tj = Path(targets_path)
+    if not tj.exists():
+        raise click.ClickException(f"{tj} not found")
+    targets = json.loads(tj.read_text())
+    target_ids = [t["target_id"] for t in targets]
+    log.info("generating (pocket) for %d targets from %s: %s", len(target_ids), tj, target_ids)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.manual_seed(seed)
+    model, fpindex, rxn_matrix = load_model(ckpt, None, device)
+    pockets = load_pockets(pocket_dir)
+    log.info("model loaded on %s", device)
+
+    cdir = Path(candidates_dir)
+    cdir.mkdir(parents=True, exist_ok=True)
+    for target_id in target_ids:
+        out_path = cdir / f"{target_id}.txt"
+        if out_path.exists():
+            log.info("skip %s: candidate file already exists", target_id)
+            continue
+        if target_id not in pockets:
+            log.warning("skip %s: no pocket", target_id)
+            continue
+        t0 = time.time()
+        smiles_set: set[str] = set()
+        for call in range(n_calls):
+            info, _ = sample_pocket(
+                target_id, model, fpindex, rxn_matrix, pockets, device, repeat=repeat,
+            )
+            for _i, d in info.items():
+                smi = d.get("smiles")
+                if smi:
+                    smiles_set.add(smi)
+            log.info(
+                "%s call %d/%d: %d unique valid so far (%.1fs)",
+                target_id, call + 1, n_calls, len(smiles_set), time.time() - t0,
+            )
+            if len(smiles_set) >= target_min:
+                break
+        _write_candidates(out_path, smiles_set)
         log.info(
             "WROTE %s: %d unique valid SMILES (%.1fs total)",
             out_path, len(smiles_set), time.time() - t0,
