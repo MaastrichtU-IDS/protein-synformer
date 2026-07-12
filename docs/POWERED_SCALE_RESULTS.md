@@ -44,6 +44,24 @@ sampled mismatch K=12, bootstrap 95% CI):
 different sampled pockets — gives −0.79, consistent with the original published −0.71; but it is not the
 within-run 20-subset above and should not be differenced against it.)*
 
+## Family-stratified: the specificity is fine-grained, not coarse
+
+The 41 targets are family-dominated (16 protein kinases sharing the ATP pocket, 7 GPCRs, 2 lipocalins),
+so a natural worry is that the delta just reflects *easy cross-family* discrimination. Re-stratifying the
+per-source mismatch by family (same-family vs cross-family pockets) refutes that:
+
+| sources | own vs **same-family** mismatch | own vs **cross-family** mismatch |
+|---|---|---|
+| all (n=41) | −0.741 | −0.797 |
+| **kinases (n=16)** | **−0.767** | −0.751 |
+| GPCRs (n=7) | −1.095 | −1.063 |
+
+**The signal holds *within* family as strongly as across it.** Even among the 16 kinases (conserved ATP
+pocket), a kinase's selected molecules discriminate *its own* pocket from *sibling-kinase* pockets
+(−0.77) as well as from unrelated families (−0.75). So the docking-selection specificity is **fine-grained
+paralog-level discrimination**, not coarse family-appropriateness — the hard case, and it holds. (Still a
+smina/shape-fit metric; Boltz method-dependence unchanged.)
+
 ## Methodological notes
 
 - **The sampled matrix self-completes.** `_matrix_normalized_delta` fills `M[i,j]` by `(molecule, pocket)`,

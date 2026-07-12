@@ -31,7 +31,7 @@ cross-cutting scorer question (is the docking proxy trustworthy?).
 |---|---|---|---|
 | Docking-selection | rigid-pocket shape-fit selection | first modest specificity signal | [DOCKING_SELECTION_RESULTS](DOCKING_SELECTION_RESULTS.md) |
 | Powered study (N=20) | own-vs-mismatch normalized delta, all-pairs + AF arm | modest specificity, delta ≈ **−0.62/−0.71**, structure-origin-independent | [POWERED_SPECIFICITY_RESULTS](POWERED_SPECIFICITY_RESULTS.md), [TARGET_SPECIFICITY](TARGET_SPECIFICITY.md) |
-| SP-SC | scale to N=41 (sampled mismatch) | **replicates on 21 *independent* targets: Δ −0.64, CI [−1.09,−0.20] excludes 0** (combined N=41 −0.80). Robust because a *relative same-scorer* contrast differences out uniform smina bias | [POWERED_SCALE_RESULTS](POWERED_SCALE_RESULTS.md) |
+| SP-SC | scale to N=41 (sampled mismatch) | **replicates on 21 *independent* targets: Δ −0.64, CI [−1.09,−0.20] excludes 0** (combined N=41 −0.80). Robust because a *relative same-scorer* contrast differences out uniform smina bias. **Family-stratified: the signal is fine-grained** — holds *within* the 16-kinase family (own vs sibling-kinase −0.77 ≈ own vs cross-family −0.75), i.e. paralog-level discrimination, not coarse family-appropriateness | [POWERED_SCALE_RESULTS](POWERED_SCALE_RESULTS.md) |
 
 **→ Selecting against the pocket confers a modest, real, independently-replicated specificity.**
 
