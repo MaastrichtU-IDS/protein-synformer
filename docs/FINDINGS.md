@@ -48,6 +48,15 @@ cross-cutting scorer question (is the docking proxy trustworthy?).
 molecules). Boltz is the more trustworthy scorer, but its role so far has been *validation*, never
 *selection*.**
 
+## D. ADMET of generated molecules — synthesizable & QED-reasonable, but liable
+
+| study | what | result | doc |
+|---|---|---|---|
+| SP-AD | ML-ADMET (`admet-ai`, ~40 endpoints) over 5,701 generated pocket candidates | **only 5.4% pass** a safety+absorption guard; driven by **DILI (83% flagged), hERG (59%)**, high CYP, poor solubility (p25) — yet QED/Lipinski/HIA look drug-like. The QED/SA gates used earlier **overestimate** drug-likeness; real ADMET is worse (ML-proxy caveat: DILI models over-flag) | [SP_AD_RESULTS](SP_AD_RESULTS.md) |
+
+**→ The pipeline generates synthesizable, physchem-reasonable molecules with pervasive predicted safety/
+metabolic liabilities — a real drug-likeness gap the specificity work never surfaced.**
+
 ---
 
 ## Reconciling the two facts about the specificity: robust *within* smina, method-dependent *across* methods
