@@ -49,8 +49,10 @@ pools overlap only ~18/48.
 | **pooled** | | −0.046 | +0.037 | **+0.082** | **[−0.22, +0.41]** | — |
 
 **Direction splits 2/2, every CI includes 0, the pooled difference is ns.** The raw-d and joint-z metrics
-agree in direction per target (internal consistency). There is no reliable DPO>base effect on held-out
-raw-sample specificity.
+agree in direction on all four targets — a reassuring consistency, though a soft one: the joint-z variant
+assigns the ~18 shared base/DPO molecules to the DPO bucket only (vs the primary raw-d metric, which counts
+them symmetrically in both pools), so the two are not scored on identical partitions. Either way, there is
+no reliable DPO>base effect on held-out raw-sample specificity.
 
 **ADMET unchanged** (`admet-ai`, held-out pools): base `admet_pass` 4.7% → DPO 5.6%; hERG-favorable 32.9 →
 33.1%; DILI-favorable 22.8 → 26.1%; QED percentile 64.9 → 70.6; solubility p24 (flat). DPO did **not** trade
