@@ -12,7 +12,13 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from scripts.dpo_train import build_pair_batch_item, dpo_train_step, pair_log_likelihoods, subsample_pairs
+from scripts.dpo_train import (
+    build_out_checkpoint,
+    build_pair_batch_item,
+    dpo_train_step,
+    pair_log_likelihoods,
+    subsample_pairs,
+)
 
 
 class _StandInModel(nn.Module):
@@ -116,6 +122,35 @@ def test_dpo_train_step_decreases_loss_and_increases_margin_and_freezes_referenc
     # 3. Implicit-reward margin increases after the step.
     assert margin_after > margin_before
 
+    # 4. The returned dict carries the drift (KL-to-reference / collapse) proxy.
+    assert "drift" in stats
+
+
+def test_dpo_train_step_reports_drift_that_moves():
+    """The symmetric batch above keeps drift == 0 by construction (winner up
+    exactly as much as loser down). Use an ASYMMETRIC batch (winner marker
+    +2.0, loser marker -1.0) so the mean policy-vs-reference shift is genuinely
+    nonzero, and assert `drift` moves off its initial value after a step."""
+    policy = _StandInModel(theta=0.0)
+    reference = _StandInModel(theta=0.0)
+    for p in reference.parameters():
+        p.requires_grad_(False)
+
+    code = torch.zeros(1, 1, 1)
+    code_padding_mask = torch.zeros(1, 1, dtype=torch.bool)
+    batch = [{"code": code, "code_padding_mask": code_padding_mask, "winner": _route(2.0), "loser": _route(-1.0)}]
+    optimizer = torch.optim.Adam(policy.parameters(), lr=0.1)
+
+    # policy == reference initially -> pre-step drift is exactly 0.
+    stats0 = dpo_train_step(policy, reference, batch, optimizer, beta=0.1)
+    assert stats0["drift"] == _approx(0.0)
+
+    # After the first step theta > 0, so winners (+2) and losers (-1) no longer
+    # cancel -> the pre-step drift of the SECOND call is nonzero (moved).
+    stats1 = dpo_train_step(policy, reference, batch, optimizer, beta=0.1)
+    assert stats1["drift"] != stats0["drift"]
+    assert abs(stats1["drift"]) > 1e-6
+
 
 def test_subsample_pairs_no_op_when_under_cap():
     pairs = [("w0", "l0"), ("w1", "l1")]
@@ -163,3 +198,24 @@ def test_build_pair_batch_item_missing_winner_or_loser_returns_none():
     assert build_pair_batch_item(routes_by_smiles, code, code_padding_mask, "CCO", "NOPE") is None
     assert build_pair_batch_item(routes_by_smiles, code, code_padding_mask, "NOPE", "CCO") is None
     assert build_pair_batch_item(routes_by_smiles, code, code_padding_mask, "NOPE", "ALSO_NOPE") is None
+
+
+def test_build_out_checkpoint_is_load_model_compatible():
+    # load_model(ckpt, config_path=None, ...) reads ckpt["hyper_parameters"]["config"] and
+    # ckpt["state_dict"] with keys prefixed "model." (stripped via k[6:]). This guards the
+    # bug class caught once already: saving a bare state_dict would be unloadable downstream.
+    base_hparams = {"config": {"model": {"dim": 8}, "chem": {"fpindex": "x", "rxn_matrix": "y"}}}
+    policy_state_dict = {"encoder.weight": torch.zeros(2, 2), "head.bias": torch.ones(3)}
+
+    blob = build_out_checkpoint(base_hparams, policy_state_dict)
+
+    # hyper_parameters carried through unchanged (identity, not a copy — cheap and correct).
+    assert blob["hyper_parameters"] is base_hparams
+    # every state_dict key is "model."-prefixed and strips back to the original param name.
+    assert set(blob["state_dict"].keys()) == {"model.encoder.weight", "model.head.bias"}
+    for k in blob["state_dict"]:
+        assert k.startswith("model.")
+    stripped = {k[6:]: v for k, v in blob["state_dict"].items()}
+    assert set(stripped.keys()) == set(policy_state_dict.keys())
+    # tensor values are the same objects (no clone/detach mangling).
+    assert stripped["encoder.weight"] is policy_state_dict["encoder.weight"]

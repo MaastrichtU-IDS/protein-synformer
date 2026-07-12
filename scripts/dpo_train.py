@@ -79,15 +79,29 @@ def dpo_train_step(policy, reference, batch: list[dict], optimizer, beta: float 
     batch) before a single `optimizer.step()` — see module docstring for why
     this is one gradient update, not `len(batch)` of them.
 
-    Returns `{"loss": mean DPO loss, "margin": mean implicit-reward margin
-    mean((llpi_w-llref_w)-(llpi_l-llref_l))}` over `batch`, both evaluated
-    from the forward passes taken BEFORE `optimizer.step()` is applied (i.e.
-    the pre-step loss/margin, useful for per-epoch logging).
+    Returns `{"loss", "margin", "drift"}` over `batch`, all evaluated from the
+    forward passes taken BEFORE `optimizer.step()` is applied (i.e. pre-step
+    values, useful for per-epoch logging):
+
+    - `loss`   — mean DPO loss.
+    - `margin` — mean implicit-reward margin
+      `mean((llpi_w-llref_w)-(llpi_l-llref_l))`; a positive, growing margin =
+      policy learning to prefer winners over losers.
+    - `drift`  — mean policy-minus-reference log-prob SHIFT over both winners
+      AND losers, `mean(((llpi_w-llref_w)+(llpi_l-llref_l))/2)`. This is the
+      KL-to-reference proxy / reward-collapse monitor the brief requires:
+      unlike `margin` (a DIFFERENCE that can grow while the policy drifts far
+      from the reference), `drift` is the SUM/average shift, so a large-
+      magnitude `drift` — especially a strongly negative one — flags the
+      policy moving away from the reference (assigning both winners and losers
+      much lower probability than the reference), the classic DPO reward-
+      collapse failure mode. Watch it stay near 0 during the ops run.
     """
     optimizer.zero_grad()
     n = len(batch)
     losses = []
     margins = []
+    drifts = []
     for pair in batch:
         code = pair["code"]
         code_padding_mask = pair["code_padding_mask"]
@@ -99,9 +113,31 @@ def dpo_train_step(policy, reference, batch: list[dict], optimizer, beta: float 
         loss = dpo_loss(llpi_w, llpi_l, llref_w, llref_l, beta=beta)
         (loss / n).backward()
         losses.append(loss.item())
-        margins.append(((llpi_w - llref_w) - (llpi_l - llref_l)).item())
+        shift_w = (llpi_w - llref_w).item()
+        shift_l = (llpi_l - llref_l).item()
+        margins.append(shift_w - shift_l)
+        drifts.append((shift_w + shift_l) / 2)
     optimizer.step()
-    return {"loss": sum(losses) / n, "margin": sum(margins) / n}
+    return {"loss": sum(losses) / n, "margin": sum(margins) / n, "drift": sum(drifts) / n}
+
+
+def build_out_checkpoint(base_hparams, policy_state_dict) -> dict:
+    """Wrap a trained policy's `state_dict` into a `load_model`-compatible
+    checkpoint blob.
+
+    `load_model(ckpt, config_path=None, ...)` reads `ckpt["hyper_parameters"]
+    ["config"]` and `ckpt["state_dict"]` with keys prefixed `"model."` (which
+    it strips via `k[6:]`). Saving a bare `policy.state_dict()` would produce
+    a checkpoint NONE of the downstream consumers (generate_routes.py,
+    sample_pocket, this script's own `--ckpt` load) could reload. This helper
+    re-attaches the `"model."` prefix to every parameter key and carries the
+    original `hyper_parameters` through unchanged, so the DPO'd checkpoint is
+    a drop-in replacement for the base checkpoint.
+    """
+    return {
+        "hyper_parameters": base_hparams,
+        "state_dict": {f"model.{k}": v for k, v in policy_state_dict.items()},
+    }
 
 
 def build_pair_batch_item(routes_by_smiles: dict, code, code_padding_mask, winner_smiles: str, loser_smiles: str):
@@ -209,6 +245,7 @@ def main(ckpt, routes_dir, pairs_dir, out_ckpt, lr, epochs, beta, max_pairs_per_
     for epoch in range(epochs):
         epoch_losses = []
         epoch_margins = []
+        epoch_drifts = []
         for target in targets:
             routes_blob = torch.load(route_files[target], map_location=device)
             code = routes_blob["code"]
@@ -241,27 +278,27 @@ def main(ckpt, routes_dir, pairs_dir, out_ckpt, lr, epochs, beta, max_pairs_per_
             stats = dpo_train_step(policy, reference, batch_items, optimizer, beta=beta)
             epoch_losses.append(stats["loss"])
             epoch_margins.append(stats["margin"])
+            epoch_drifts.append(stats["drift"])
             click.echo(
                 f"epoch {epoch} {target}: n_pairs={len(batch_items)} "
-                f"loss={stats['loss']:.4f} margin={stats['margin']:.4f}",
+                f"loss={stats['loss']:.4f} margin={stats['margin']:.4f} drift={stats['drift']:.4f}",
             )
 
         if epoch_losses:
             mean_loss = sum(epoch_losses) / len(epoch_losses)
             mean_margin = sum(epoch_margins) / len(epoch_margins)
-            click.echo(f"epoch {epoch} MEAN over {len(epoch_losses)} targets: loss={mean_loss:.4f} margin={mean_margin:.4f}")
+            mean_drift = sum(epoch_drifts) / len(epoch_drifts)
+            click.echo(
+                f"epoch {epoch} MEAN over {len(epoch_losses)} targets: "
+                f"loss={mean_loss:.4f} margin={mean_margin:.4f} drift={mean_drift:.4f} "
+                f"(drift = policy-vs-reference log-prob shift; large |drift| flags reward collapse)",
+            )
         else:
             click.echo(f"epoch {epoch}: no target had usable pairs")
 
     out_path = Path(out_ckpt)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "hyper_parameters": base_ckpt["hyper_parameters"],
-            "state_dict": {f"model.{k}": v for k, v in policy.state_dict().items()},
-        },
-        out_path,
-    )
+    torch.save(build_out_checkpoint(base_ckpt["hyper_parameters"], policy.state_dict()), out_path)
     click.echo(f"WROTE {out_path}")
 
 
