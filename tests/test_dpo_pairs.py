@@ -89,6 +89,38 @@ def test_per_molecule_specificity_filters_to_requested_target_only():
     assert spec["A"] == pytest.approx(-2.5456212005056296, abs=1e-9)
 
 
+def test_per_molecule_specificity_ignores_non_candidate_source_rows():
+    # Own-pocket docking also writes `known`/`random` reference rows (powered_run.py:192-196);
+    # mismatch docking writes only `candidate`. Those reference rows must NOT enter the
+    # own-pocket column's z-baseline, or they silently distort every candidate's spec. Assert
+    # that adding extreme-scored known/random own-pocket rows leaves candidate spec UNCHANGED.
+    base = _build_df()
+    contaminated = pd.concat(
+        [
+            base,
+            pd.DataFrame(
+                [
+                    ("T0", "T0", "known_ref1", "known", -100.0),   # extreme own-pocket outliers
+                    ("T0", "T0", "known_ref2", "known", -99.0),
+                    ("T0", "T0", "random_ref1", "random", 50.0),
+                ],
+                columns=["target", "pocket", "molecule", "source", "score"],
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    spec_base = per_molecule_specificity(base, "T0")
+    spec_contaminated = per_molecule_specificity(contaminated, "T0")
+
+    # The known/random reference molecules never appear in the result (they are not candidates)
+    assert set(spec_contaminated.keys()) == {"A", "B", "C"}
+    # ...and, crucially, the candidate spec values are bit-for-bit unchanged: the source filter
+    # kept the reference rows out of the own-pocket nanmean/nanstd baseline entirely.
+    assert spec_contaminated == spec_base
+    assert spec_contaminated["A"] == pytest.approx(-2.5456212005056296, abs=1e-9)
+
+
 def test_make_pairs_direction_and_composition():
     spec = {
         "most_specific": -3.0,

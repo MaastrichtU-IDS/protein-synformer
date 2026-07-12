@@ -43,6 +43,13 @@ def per_molecule_specificity(scores_df: pd.DataFrame, target: str) -> dict[str, 
     a specific molecule and POSITIVE for a promiscuous one. MORE NEGATIVE = MORE SPECIFIC.
     """
     sub = scores_df[scores_df["target"] == target]
+    # Restrict to candidate (generated) molecules only, matching every sibling matrix builder
+    # in this codebase (powered_analyze.py:59, dock_analyze.py:32, boltz_matrix_prepare.py,
+    # candidate_boltz.py). Own-pocket docking also writes `known`/`random` reference rows
+    # (powered_run.py:192-196) while mismatch docking writes only `candidate`; leaving them in
+    # would not add molecules to the result but WOULD contaminate the own-pocket column's
+    # nanmean/nanstd z-baseline, quietly distorting every candidate's spec.
+    sub = sub[sub["source"] == "candidate"]
     if sub.empty:
         return {}
 
