@@ -1,90 +1,88 @@
-# Tier-1 Calibration Results: the specificity instrument does not measure selectivity
+# Tier-1 Calibration Results: the specificity metric has a real (modest) cross-family selectivity signal
 
 **Date:** 2026-07-13 · Branch `powered-specificity` · Proposal:
 `docs/SPECIFICITY_CALIBRATION_PROPOSAL.md` · Scripts: `scripts/tier1_{prep,analyze}.py`,
 `tier1_dock_driver.sh`
 
+> **Correction note:** an initial version of this doc led with a confounded number (a top-M + family-
+> clustered-panel artifact) and wrongly concluded the specificity metric was falsified. The family-
+> stratified recompute below (advisor-caught) reverses that. This is the corrected record.
+
 ## Question
 
-Does the own-vs-mismatch docking **z-delta** — the exact metric behind the project's central positive
-("selection against the pocket confers specificity", delta −0.6/−0.8) — track **real** target selectivity?
-Tier-1 test: dock **known actives**, **property-matched decoys** (MW/logP/HBD-matched, Tanimoto<0.35),
-and the model's **generated candidates** (25 each) for 8 family-diverse targets (KIT/JAK3/CDK5 kinases;
-5-HT1A/5-HT2A/A1R GPCRs; CA12; RAB9A) into a shared 8-pocket panel, and compare the metric across classes.
+Does the own-vs-mismatch docking **z-delta** — the metric behind the project's central positive
+("selection against the pocket confers specificity", −0.6/−0.8) — track **real** selectivity? Tier-1 test:
+dock **known actives**, **property-matched decoys** (MW/logP/HBD-matched, Tanimoto<0.35), and the model's
+**generated candidates** (25 each) for 8 targets into a shared 8-pocket panel, and compare the metric
+across classes.
 
-## Result — the metric does NOT separate real binders from decoys (falsification)
+## Clean finding 1 — smina has a modest, family-dependent own-pocket AFFINITY signal
 
-**Exact powered metric (top-M=10 per target, z-per-pocket-column delta; more negative = more own-preferring):**
+Raw **own-pocket** score ranks known actives above property-matched decoys — **mean AUROC 0.66**, strongly
+pocket-dependent: KIT 0.80, CDK5 0.74, JAK3 0.73, 5-HT1A 0.73, 5-HT2A 0.65, A1R 0.58, **RAB9A 0.56, CA12
+0.48** (smina fails on the shallow/polar CA zinc pocket and the GTPase — no metal/induced-fit handling).
+Generated candidates dock **comparably to real actives** on the own pocket (KIT −9.0 vs −9.9; A1R −8.9 vs
+−8.4) — the generator makes genuinely good shape-fit binders.
 
-| class | mean per-target delta (n=8) |
-|---|---|
-| **known actives** | **−0.05** |
-| property-matched decoys | −0.43 |
-| generated candidates | −0.44 |
+## The confound (why the naive whole-panel comparison misleads)
 
-Real known actives are the **least** own-preferring of the three — *not* more than matched decoys (actives
-more-negative in only **3/8** targets; paired mean diff +0.38, ns at n=8). Decoys and candidates score as
-*more* "specific" than actual known binders.
+The 8-target panel is **family-clustered** (3 kinases + 3 aminergic GPCRs + 2 outliers). Real actives are
+**legitimately cross-reactive within family** — a KIT inhibitor docks into JAK3/CDK5 — so 2 of each
+active's 7 mismatch pockets are same-family targets it genuinely binds, which flattens its
+own-preference. Property-matched decoys have no family to cross-react with, so under top-M-by-own-score
+selection they look *artificially* specific. Averaging all mismatch pockets together (and adding top-M
+selection, and the CA12/RAB9A docking-failure pockets) produced a spurious "actives look *less* specific
+than decoys" reversal. The tell: the no-selection per-molecule metric already showed the correct direction
+(actives −0.043 vs decoys +0.056); only top-M flipped it.
 
-**Per-molecule z-delta (pooled, common per-pocket z):** actives −0.043, decoys +0.056, candidates −0.031.
-**AUROC(z-delta ranks actives > decoys) = 0.541** (diff −0.099, CI [−0.24, +0.05], ns). The metric is
-near-blind to whether a molecule is a real active or a matched decoy of that pocket. Candidates are
-indistinguishable from actives (diff −0.012, ns).
+## Clean finding 2 — de-confounded (family-stratified, 6 working targets, per-molecule)
 
-## But smina is NOT noise — it has modest, family-dependent own-pocket AFFINITY signal
+Dropping the two docking-failure pockets (CA12, RAB9A) and splitting the mismatch panel into same-family
+vs cross-family (more negative = prefers own):
 
-Raw **own-pocket** score does rank actives above matched decoys — **mean AUROC 0.66**, strongly
-family-dependent:
+| contrast | actives | decoys | candidates | diff(act−dec) 95% CI | AUROC(act>dec) |
+|---|---|---|---|---|---|
+| **own vs cross-family** | **−0.107** | +0.146 | −0.072 | **−0.253 [−0.44, −0.08]** ✓ excl. 0 | 0.575 |
+| own vs same-family | +0.003 | +0.190 | −0.062 | −0.186 [−0.39, +0.01] ns | 0.542 |
 
-| target | own-pocket actives vs decoys (kcal/mol) | AUROC |
-|---|---|---|
-| KIT (kinase) | −9.9 vs −8.9 | **0.80** |
-| CDK5 (kinase) | −8.2 vs −7.7 | 0.74 |
-| JAK3 (kinase) | −8.6 vs −8.0 | 0.73 |
-| 5-HT1A (GPCR) | −7.6 vs −3.3 | 0.73 |
-| 5-HT2A (GPCR) | −8.9 vs −8.6 | 0.65 |
-| A1R (GPCR) | −8.4 vs −8.0 | 0.58 |
-| RAB9A (GTPase) | −7.1 vs −6.9 | 0.56 |
-| CA12 (lyase) | −6.4 vs −6.6 | 0.48 |
+- **Cross-family: real actives prefer their own pocket significantly more than matched decoys** (CI
+  excludes 0). The specificity metric carries a **real, modest cross-family selectivity signal** — it is
+  not a pure normalization artifact.
+- **Same-family: actives show no own-preference over sibling targets** (ns) — they genuinely cross-react
+  at the paralog level, and the metric correctly reports this rather than inventing selectivity.
 
-Generated candidates dock **comparably to real actives** on the own pocket (e.g. KIT −9.0 vs −9.9; A1R
-−8.9 vs −8.4) — the generator makes genuinely good shape-fit binders.
+## Verdict (corrected; per pre-committed decision rule)
 
-## Interpretation
+Tier-1 does **not** falsify the metric. De-confounded, the own-vs-mismatch z-delta **does** track real
+selectivity at the **cross-family** level (modestly: AUROC ~0.58, diff CI excludes 0) and honestly reports
+**within-family cross-reactivity**. So the project's central positive is **refined, not downgraded**:
 
-- **smina retains a real but modest AFFINITY signal** (own-pocket binder-vs-decoy AUROC 0.66) — strong for
-  deep kinase/aminergic-GPCR pockets, at chance for shallow/polar CA12 and the GTPase.
-- **The own-vs-mismatch normalization destroys most of it** (0.66 → 0.54) and yields a quantity that does
-  **not** track molecular selectivity: real known binders are no more (point-estimate less) own-preferring
-  than matched decoys.
-- **Therefore the project's docking-selection "specificity" (−0.6/−0.8) is best read as a relative-
-  normalization / shape-fit artifact, not molecular selectivity.** This *explains* Boltz's independent
-  non-corroboration (own-vs-mismatch delta −0.04): both scorers agree the own-preference is not real
-  selectivity. Docking-selection enriches **binders** (affinity + shape fit), not **selective** binders.
+> Docking-selection specificity is a **real but modest cross-family** signal (own pocket vs unrelated
+> families), riding on smina's family-dependent affinity signal. It does **not** demonstrate
+> **paralog-level** selectivity — the hard, valuable case — for real known binders here.
 
-## Verdict (per pre-committed decision rule)
+This is consistent with Boltz's molecule-level non-corroboration being about *magnitude/paralog* resolution
+rather than the axis being pure noise.
 
-Tier-1's role is to **falsify**, and it does: the specificity metric fails to separate real actives from
-property-matched decoys. This **downgrades the central positive** — "selection confers specificity" should
-be restated as "selection enriches shape-fit binders; the *selectivity* interpretation is not supported."
-The real signal in docking is **affinity, not selectivity** (proposal §4, row 3).
+## Caveats (do not overclaim in the other direction now)
 
-## Caveats (important — do not overclaim)
-
-- **n=8 targets / ~25 mols each; AUROCs and the 8-target delta are noisy.** The actives-vs-decoys results
-  are *ns*, not a proven reversal. Tier-1 falsifies (no clean separation); it cannot *confirm*.
-- **"Known actives" are binders, not certified *selective* compounds** — some real drugs are genuinely
-  promiscuous, which could depress their own-preference legitimately. This is exactly why **Tier-2**
-  (correlate docked Δscore vs *measured* Δaffinity across target pairs) is the decisive calibration; it
-  is not yet run.
-- Orthosteric crystal pocket only; allosteric sites (where selectivity is often achievable) untested.
-- Per-column z was computed over a small 8-target panel (noisier than the 20–41-target powered matrix).
+- **Effect sizes are modest** (cross-family AUROC 0.575; the win is "CI excludes 0", not a strong
+  separation). n=6 targets, ~25 mols/class.
+- **"Known actives" are binders, not certified *selective* compounds** — so Tier-1 shows the metric
+  isn't noise, but cannot quantify selectivity fidelity. **Tier-2 (correlate docked Δscore vs *measured*
+  Δaffinity across target pairs) remains the decisive test** and is well-motivated by this result.
+- **Paralog-level selectivity — the actually-valuable problem — is NOT demonstrated** (own-vs-same-family
+  ns for actives). Whether the powered study's within-family candidate "specificity" (−0.77) is real or a
+  selection artifact is now the sharp open question; Tier-2 within-family pairs would settle it.
+- Orthosteric crystal pocket only; allosteric sites (where paralog selectivity is often achievable)
+  untested. CA/GTPase need better physics than rigid smina.
 
 ## Bottom line
 
-The instrument the whole project's specificity claims rest on **does not measure molecular selectivity** —
-it measures shape-fit affinity, and the "specificity" contrast is largely a normalization artifact. This
-does not erase the *generation-null* finding (that stands, and is even cleaner now: the generator makes
-good binders, targeting was never the achievable axis), but it **reframes the one positive**: selection
-gives you binders, not selective binders. Next: Tier-2 measured-selectivity calibration to confirm, and —
-if confirmed — a learned selectivity oracle becomes the only credible path to real targeting.
+The instrument is **not** falsified — corrected for a family-clustering confound, it shows a real, modest
+**cross-family** selectivity signal plus a family-dependent **affinity** signal. What it does **not** yet
+support is **paralog-level** selectivity for real drugs, which is the valuable target. The **generation-
+null stands and is cleaner** (the generator makes good binders; targeting was never the achievable axis).
+Next: **Tier-2** measured-Δaffinity calibration, with explicit within-family (paralog) pairs — that is what
+tells us whether real selectivity is reachable at all, and whether the within-family candidate signal was
+real.

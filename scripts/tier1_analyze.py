@@ -76,12 +76,54 @@ def main():
           f"diff(a-c)={diff_ac:+.3f} CI[{lo_ac:+.3f},{hi_ac:+.3f}] "
           f"{'(candidates own-prefer >= actives => generation artifact risk)' if diff_ac <= 0 or lo_ac <= 0 <= hi_ac else ''}")
 
+    strat = stratified(df)
     out = {"n": zd.groupby("cls").size().to_dict(),
            "mean_zdelta": zd.groupby("cls").zdelta.mean().to_dict(),
            "actives_vs_decoys": {"diff": diff_ad, "ci": [lo_ad, hi_ad], "auroc": auroc_ad},
-           "actives_vs_candidates": {"diff": diff_ac, "ci": [lo_ac, hi_ac]}}
+           "actives_vs_candidates": {"diff": diff_ac, "ci": [lo_ac, hi_ac]},
+           "stratified_deconfounded": strat}
     json.dump(out, open("data/dock/tier1/tier1_summary.json", "w"), indent=2)
     print("\nwrote data/dock/tier1/tier1_summary.json")
+
+
+# --- de-confounded family stratification (advisor): drop docking-failure pockets (CA12, RAB9A),
+# split mismatch into same-family vs cross-family; the whole-panel average confounds legitimate
+# within-family cross-reactivity of real actives with a metric failure. ---
+KIN = {"P10721_WT", "P52333_WT", "Q00535_WT"}
+GPCR = {"P08908_WT", "P28223_WT", "P30542_WT"}
+WORK = KIN | GPCR  # exclude CA12 (own-pocket AUROC 0.48) + RAB9A (0.56): smina fails those pockets
+
+
+def stratified(df):
+    fam = lambda t: "kin" if t in KIN else "gpcr"
+    d = df[df.pocket.isin(WORK) & df.target.isin(WORK)]
+    best = d.groupby(["cls", "target", "molecule", "pocket"], as_index=False).score.min()
+    piv = best.pivot_table(index=["cls", "target", "molecule"], columns="pocket", values="score")
+    piv = piv.reindex(columns=sorted(WORK))
+    Z = (piv - piv.mean(axis=0)) / piv.std(axis=0)
+    rows = []
+    for (cls, src, mol), zr in Z.iterrows():
+        own = zr.get(src, np.nan)
+        same = [zr[p] for p in WORK if p != src and fam(p) == fam(src) and np.isfinite(zr[p])]
+        cross = [zr[p] for p in WORK if fam(p) != fam(src) and np.isfinite(zr[p])]
+        if not np.isfinite(own) or not same or not cross:
+            continue
+        rows.append({"cls": cls, "own_vs_same": own - np.mean(same), "own_vs_cross": own - np.mean(cross)})
+    r = pd.DataFrame(rows)
+    res = {}
+    print("\n=== DE-CONFOUNDED family-stratified (6 working targets; more negative = prefers own) ===")
+    for metric in ["own_vs_cross", "own_vs_same"]:
+        a = r[r.cls == "actives"][metric].values
+        de = r[r.cls == "decoys"][metric].values
+        diff, lo, hi = two_sample_diff_ci(a, de)
+        au = discrimination_auroc(pd.DataFrame(
+            {"class": ["known"] * len(a) + ["random"] * len(de), "val": list(-a) + list(-de)}),
+            "val", higher_is_better=True)
+        res[metric] = {"actives": float(a.mean()), "decoys": float(de.mean()),
+                       "diff": diff, "ci": [lo, hi], "auroc": au, "sig": (hi < 0 or lo > 0)}
+        print(f"{metric}: actives {a.mean():+.3f} vs decoys {de.mean():+.3f} | diff={diff:+.3f} "
+              f"CI[{lo:+.3f},{hi:+.3f}] AUROC={au:.3f} {'SIG' if res[metric]['sig'] else 'ns'}")
+    return res
 
 
 if __name__ == "__main__":
