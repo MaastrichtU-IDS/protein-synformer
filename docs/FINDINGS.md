@@ -50,22 +50,43 @@ molecules). Boltz is the more trustworthy scorer, but its role so far has been *
 
 ---
 
-## Why the selection positive survives the scorer caveat
+## Reconciling the two facts about the specificity: robust *within* smina, method-dependent *across* methods
 
-SP-F/SP-CC show smina is unreliable for *absolute* candidate quality. Yet SP-SC's specificity holds. The
-reconciliation: the specificity delta is a **relative, same-scorer** comparison — a molecule's smina score
-in its *own* pocket vs in *mismatch* pockets, all smina. A uniform smina-hacking bias **differences out**
-of an own-minus-mismatch contrast, so pocket-discrimination is structurally far less vulnerable to the
-smina/Boltz disagreement than absolute selection. (This does not imply Boltz agrees on *magnitude*.)
+Two things are both true and must be stated together:
+
+- **Robust within smina (relative signal).** SP-F/SP-CC show smina is unreliable for *absolute* candidate
+  quality, yet SP-SC's specificity replicates on independent targets. The reason: the delta is a
+  **relative, same-scorer** contrast (own pocket vs mismatch, all smina), so uniform smina bias
+  *differences out* — pocket-discrimination is far less vulnerable to smina's absolute unreliability. The
+  own-pocket-preference signal is real and reproducible **as a smina/rigid-shape-fit phenomenon.**
+- **Method-dependent across methods (not corroborated by co-folding).** The scorer-independence question
+  is **answered** (BOLTZ_VALIDATION): the *same* smina-selected molecules, co-folded 5×5, give a Boltz
+  own-vs-mismatch delta of **−0.04 (chance)** vs docking's **−1.74** — Boltz does **not** see the
+  own-vs-mismatch preference (and Boltz is competent here, known-vs-random AUROC 0.95, so this is an
+  informative null). This was a *clean* test (molecules smina-selected, so no Boltz winner's-curse); a
+  "select-by-Boltz, read-by-Boltz" design would instead be confounded and was **not** pursued.
+
+**Honest synthesis:** the docking-selection specificity is a **real, replicated, relative smina
+(rigid-pocket shape-fit) signal that co-folding does not corroborate at the molecule level** — i.e.
+method-dependent. It is the project's strongest positive precisely because it is *relative and
+replicated*, but it should be reported as shape-fit specificity, not as validated binding specificity.
 
 ## Open frontier — what we have NOT tried
 
-**Highest value (directly enabled by the findings):**
-- **Boltz (or consensus) as the *selector*** on a generated candidate pool — Boltz has only ever been
-  post-hoc *validation*. SP-CC/SP-F point to the candidate regime as exactly where an independent scorer
-  matters. **Molecule-level *absolute* quality is the open question.** *(Next sub-project.)*
-- **Does Boltz/consensus selection demote the smina-hackers?** (checkable on SP-F's P10721 pool.)
-- **Reward fine-tuning / DPO** of the generator (SP-L/SP-F were frozen-model — weight-update loops untested).
+**Already answered (do not re-run):**
+- **Scorer-independence of the specificity** — Boltz does *not* see the own-vs-mismatch preference on
+  smina-selected molecules (BOLTZ_VALIDATION, delta −0.04 vs docking −1.74). The docking specificity is
+  method-dependent. A "select-by-Boltz, read-by-Boltz" experiment would be winner's-curse-confounded and
+  adds nothing to this.
+
+**Highest value, genuinely untried:**
+- **Reward fine-tuning / DPO** of the generator (SP-L/SP-F were frozen-model — weight-update loops
+  untested; the one lever that could make the *generator* itself target-aware).
+- **Controlled Boltz-*selection* (different question):** does selecting *by* Boltz change/help which
+  candidates you get, vs random and vs smina — with a random-selection baseline + same-molecule
+  cross-scoring (winner's-curse-aware). Likely null, lower value; only worth it to close the loop.
+- **Molecule-level absolute quality:** which scorer to trust for picking real binders remains open; the
+  honest path is a held-out third scorer (below), not smina or Boltz alone.
 
 **Encoder ablations (deferred):** hybrid pocket+sequence (`encoder_type: dual`); stronger pocket encoder
 (`pocket_cb` Cβ orientation is extracted but unused; equivariant GNN / ProteinMPNN / ESM-IF features).
