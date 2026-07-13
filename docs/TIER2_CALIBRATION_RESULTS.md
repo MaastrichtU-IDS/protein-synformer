@@ -29,14 +29,30 @@ CDK5 720, 5-HT1A 5749, 5-HT2A 5432, A1R 5133 compounds. **1,732** compounds meas
 
 The within-kinase signal is **robust** (survives a compound-clustered bootstrap, not just triple-level).
 
+**Per-pair decomposition** (guards against one dominant pair carrying a stratum):
+
+| pair | family | n (all unique compounds) | ρ |
+|---|---|---|---|
+| KIT/JAK3 | kinase | 101 | **+0.344** |
+| KIT/CDK5 | kinase | 39 | **+0.315** |
+| JAK3/CDK5 | kinase | 180 | **+0.173** |
+| 5HT1A/5HT2A | GPCR | 200 | +0.048 |
+
+**All three kinase pairs lean positive and consistent** (ρ 0.17–0.34) — and the *largest* pair (JAK3/CDK5,
+n=180) is the *weakest*, so the signal is not a single-pair artifact; it generalizes across the kinase
+paralog pairs. The GPCR stratum is effectively the **single** 5-HT1A/5-HT2A pair (the other aminergic
+overlaps were too small to test), which is flat. Every pair is 100% unique compounds, so the ρ is not
+manufactured by a few congeneric analog series.
+
 ## Interpretation
 
 - **The docking-selection specificity is REAL** — it correlates with ground-truth measured selectivity,
   significantly, overall and for kinase paralogs. This is the first time any of the project's specificity
   signal has been anchored to measured data, and it **grounds the powered study's specificity** (that
-  corpus was 39% kinases) and **supports the within-family "holds" claim** for kinases — which Tier-1 had
-  tentatively questioned (Tier-1 used known binders that aren't certified-selective; Tier-2's measured
-  Δaffinity is the sensitive test, and it finds the paralog signal).
+  corpus was 39% kinases). On the within-family question, Tier-2 is a **more sensitive, measured-affinity
+  test that resolves a weak paralog signal Tier-1 could not** — it is *consistent with* Tier-1's null
+  (ρ≈0.25 is weak — exactly the regime an own-preference test on non-certified-selective binders would
+  miss), not a reversal that makes Tier-1 "wrong."
 - **But it is WEAK** — ρ ≈ 0.25 explains only ~6% of the rank variance in kinase selectivity. Docking
   captures a *minority* of what determines paralog selectivity. This is exactly why an independent scorer
   (Boltz, ρ-equivalent chance-level delta) does not corroborate at the molecule level: a weak signal is
@@ -74,9 +90,12 @@ detector**. So:
 - ρ ≈ 0.25 is **weak** — a real but small effect; do not overstate it as "docking predicts selectivity."
 - Within-GPCR ns could hide a very weak positive (CI upper +0.20); the honest read is "no usable signal."
 - Cross-family is underpowered (n=9) — few compounds are tested on both a kinase and a GPCR.
-- Orthosteric crystal pocket, rigid smina, single per-target ChEMBL activity aggregate (best pChEMBL);
-  assay heterogeneity (Ki/IC50 mixed) adds noise that biases ρ *downward* (so the true signal may be a
-  bit stronger).
+- "GPCRs" here is really the **single** 5-HT1A/5-HT2A pair (other aminergic overlaps too small) — the
+  GPCR null should not be generalized to all GPCRs on n=1 pair.
+- Orthosteric crystal pocket, rigid smina. Per-(compound,target) activity is aggregated as **best
+  pChEMBL**, which can bias toward targets with more assays; **median pChEMBL is preferable** and worth a
+  rerun before any oracle build. Assay heterogeneity (Ki/IC50 mixed) adds noise that biases ρ *downward*
+  (true signal may be a touch stronger).
 
 ## Bottom line
 

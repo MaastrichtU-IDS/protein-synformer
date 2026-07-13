@@ -67,13 +67,22 @@ metabolic liabilities — a real drug-likeness gap the specificity work never su
 |---|---|---|---|
 | Tier-1 | dock **known actives**, **property-matched decoys**, and generated **candidates** into a shared panel; does the own-vs-mismatch z-delta separate real binders from decoys? | **the axis is real but modest, and only demonstrated cross-family.** Family-stratified (docking-failure pockets CA12/GTPase dropped): real actives prefer own over **cross-family** pockets more than matched decoys (Δ −0.25, CI [−0.44,−0.08] excl. 0; AUROC 0.58); **own-vs-same-family is ns** (real actives genuinely cross-react at the paralog level). smina also has a family-dependent **own-pocket affinity** signal (actives>decoys AUROC 0.66; strong kinases, chance for CA/GTPase). | [TIER1_CALIBRATION_RESULTS](TIER1_CALIBRATION_RESULTS.md) |
 
-**→ The docking-selection specificity is NOT a pure normalization artifact — it carries a real, modest
-*cross-family* signal riding on a real affinity signal. But *paralog-level* selectivity (the valuable hard
-case) is *not* demonstrated for real known binders, which puts the powered study's "holds within family"
-candidate result (−0.77) in question — that within-family candidate signal may be a selection artifact.
-The decisive test is Tier-2 (docked Δscore vs *measured* Δaffinity, incl. within-family pairs).**
+**→ Tier-1: the docking-selection specificity is NOT a pure normalization artifact — it carries a real,
+modest *cross-family* signal riding on a real affinity signal.**
 *(A first Tier-1 read wrongly concluded "falsified" from a family-clustered-panel + top-M confound;
 corrected via stratification — see the doc's correction note.)*
+
+| study | what | result | doc |
+|---|---|---|---|
+| Tier-2 | docked selectivity vs **measured** ΔpChEMBL (460 compounds, 530 target-pair triples) — the ground-truth calibration | **real but WEAK and kinase-specific.** All three kinase paralog pairs track measured selectivity (KIT/JAK3 ρ+0.34, KIT/CDK5 +0.32, JAK3/CDK5 +0.17; within-kinase pooled ρ **+0.245**, compound-clustered CI [+0.13,+0.35]); the one testable aminergic-GPCR pair (5-HT1A/5-HT2A) does **not** (ρ+0.05, ns). ρ≈0.25 ≈ ~6% of variance. | [TIER2_CALIBRATION_RESULTS](TIER2_CALIBRATION_RESULTS.md) |
+
+**→ Calibrated against measured affinity, the docking specificity metric is a *real but weak, target-class-
+dependent* selectivity signal: it tracks kinase paralog selectivity (consistently across all 3 kinase
+pairs, ρ 0.17–0.34) and misses 5-HT-receptor subtype selectivity. The project's central positive is thus
+neither an artifact nor strong targeting — it is a weak (ρ≈0.25) kinase-biased signal, plausibly helped by
+the kinase-heavy corpus. Real targeting needs a *learned selectivity oracle* (measured-selectivity data now
+assembled: 1,732 multi-target compounds) and/or allosteric-pocket targeting; docking-selection alone gives
+weak kinase selectivity and nothing for the tested GPCR pair.**
 
 ---
 
