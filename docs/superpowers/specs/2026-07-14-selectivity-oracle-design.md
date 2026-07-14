@@ -1,5 +1,12 @@
 # SP-ORACLE (Stage A): Learned Selectivity Oracle — Design
 
+> **SUPERSEDED (2026-07-14):** the advisor-mandated applicability-domain pre-check
+> (`scripts/oracle_domain_check.py`) killed this before implementation — the generator's molecules sit at
+> median Tanimoto ~0.27 to the nearest ChEMBL training compound (52–75% < 0.3), i.e. out of the oracle's
+> domain, and unvalidatable there. No oracle was built. See `docs/SP_ORACLE_RESULTS.md`. The design below
+> is retained for the record; the scaffold-split gate it specifies would have measured the wrong
+> (in-distribution) quantity.
+
 **Date:** 2026-07-14 · Sub-project: build a structure→affinity oracle on the assembled ChEMBL data and
 **validate whether it predicts held-out measured selectivity better than docking** (Tier-2 baseline
 ρ 0.245 within-kinase, ~0 within-GPCR). Stage A only; the generator retry (Stage B) is gated on this and

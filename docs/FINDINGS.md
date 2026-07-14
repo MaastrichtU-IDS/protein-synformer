@@ -122,6 +122,14 @@ replicated*, but it should be reported as shape-fit specificity, not as validate
   remaining way to firm this from "no pilot signal" to a real negative — but the pilot showed no signal
   worth that ~7-day cost.
 
+**Tried since (killed by a pre-check):**
+- **Learned selectivity oracle as reward (SP-ORACLE):** **not viable with existing data** — an
+  applicability-domain pre-check showed the generator's molecules sit at median Tanimoto ~0.27 to the
+  nearest ChEMBL training compound (52–75% < 0.3), i.e. **out of any ChEMBL-trained oracle's domain and
+  unvalidatable there**. No oracle built. This is the **same data wall** as the generator-side nulls from
+  the other side: you can neither *condition* nor *reward* a generator into a selectivity signal that does
+  not exist in its own chemical region. See [SP_ORACLE_RESULTS](SP_ORACLE_RESULTS.md).
+
 **Highest value, genuinely untried:**
 - **Tier-2 selectivity calibration (decisive; the real next step):** correlate docked own-vs-mismatch
   Δscore against *measured* Δaffinity (ChEMBL/BindingDB) across target pairs, **including within-family
