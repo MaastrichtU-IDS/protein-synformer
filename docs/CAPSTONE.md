@@ -11,14 +11,18 @@ We set out to make a synthesis-aware generator produce **target-specific** (sele
 conditioning on, re-biasing toward, or selecting against a protein target. After ~a dozen sub-studies the
 answer is clear and unusually well-evidenced:
 
-> **Target selectivity is a property of labeled data in the relevant chemical region, and that data does
-> not exist for the synthesizable, novel chemotypes this generator explores.** You cannot *condition* a
-> generator into a selectivity signal its training never contained (five generator-side nulls), you cannot
-> *reward* it with a learned oracle whose training data doesn't cover its outputs (oracle path, killed on a
-> domain pre-check), and you cannot validate an *allosteric* alternative without measured allosteric-ligand
-> selectivity (anchor-walled). The **only** signal reachable is a **weak, physics-based, kinase-specific
-> docking-selection signal (ρ ≈ 0.25 vs measured selectivity)** — reachable precisely because physics needs
-> no in-distribution labels. Everything else is walled by the same missing data.
+> **Target selectivity has to be learned from — or validated against — labels in the chemical region you
+> operate in, and no such labels exist for the synthesizable, novel chemotypes this generator explores**
+> (they exist elsewhere, in ChEMBL medicinal chemistry, but not *there*). **Empirically**, every
+> generation-side lever we could test and validate at reachable scale — sequence/pocket conditioning,
+> motif-enrichment, fragment search, and DPO weight-updates — **failed** to confer transferable targeting
+> (five uniformly negative results; each individually underpowered, so this is a consistent empirical
+> negative, not a proof of impossibility). **Structurally**, the two would-be rescues are blocked by that
+> missing data: a learned reward oracle trained on ChEMBL is out-of-domain for the generator's molecules
+> and *unvalidatable* there (killed on a domain pre-check), and an allosteric alternative *cannot* be
+> validated without measured allosteric-ligand selectivity (anchor-walled). The **only** signal reachable
+> is a **weak, physics-based, kinase-specific docking-selection signal (ρ ≈ 0.25 vs measured selectivity)**
+> — reachable precisely because physics needs no in-distribution labels.
 
 The generator is a good **synthesizable-diversity engine**; it makes molecules that dock as well as real
 drugs. Targeting was never the axis it could reach.
@@ -82,8 +86,11 @@ is textbook-true and thus low-information to "confirm." Not pursued.
 
 ## What is settled
 
-- Generation-side levers (conditioning, enrichment, local search, **weight updates**) do **not** confer
-  transferable targeting. Five independent nulls, the strongest a true held-out generalization test.
+- Generation-side levers (conditioning, enrichment, local search, **weight updates**) **did not** confer
+  transferable targeting across every lever we could test and validate at reachable scale — five uniformly
+  negative results, the strongest (SP-DPO) a true held-out generalization test. Each is individually
+  underpowered, so this is a consistent *empirical* negative, **not a proof of impossibility**. (The
+  data-wall results below — oracle, allosteric — are the *structural* "cannot without new labels" class.)
 - Docking-selection specificity is **real but weak and kinase-specific** (measured-selectivity ρ ≈ 0.25),
   and method-dependent (Boltz doesn't corroborate — consistent with its weakness).
 - The generated pool is synthesizable and physchem-reasonable but **~95% ADMET-liable**.
