@@ -20,9 +20,12 @@ answer is clear and unusually well-evidenced:
 > negative, not a proof of impossibility). **Structurally**, the two would-be rescues are blocked by that
 > missing data: a learned reward oracle trained on ChEMBL is out-of-domain for the generator's molecules
 > and *unvalidatable* there (killed on a domain pre-check), and an allosteric alternative *cannot* be
-> validated without measured allosteric-ligand selectivity (anchor-walled). The **only** signal reachable
-> is a **weak, physics-based, kinase-specific docking-selection signal (ρ ≈ 0.25 vs measured selectivity)**
-> — reachable precisely because physics needs no in-distribution labels.
+> validated without measured allosteric-ligand selectivity (anchor-walled). The one lever that looked like
+> it worked — docking-selection for kinases — **evaporates when properly powered**: on the dense DAVIS
+> kinome panel (78 protein-kinase pairs) it is a **coin flip at the pair level** (median per-pair ρ ≈ 0);
+> the pooled ρ ≈ 0.085 is "significant" only as a triple-count artifact (<1% of variance). So **no
+> reachable computational lever confers usable targeting** — physics-based selection needs no
+> in-distribution labels, but it carries essentially no selectivity signal either.
 
 The generator is a good **synthesizable-diversity engine**; it makes molecules that dock as well as real
 drugs. Targeting was never the axis it could reach.
@@ -57,10 +60,13 @@ selectivity. Calibrating it:
   family-clustered-panel artifact, the metric carries a **real, modest cross-family** signal (own-vs-cross
   actives −0.107 vs decoys +0.146, diff −0.25 [−0.44,−0.08]) riding on a family-dependent **affinity**
   signal (own-pocket actives>decoys AUROC 0.66; strong kinases, chance for CA/GTPase).
-- **Tier-2** (docked selectivity vs **measured** ΔpChEMBL, 460 compounds, 530 triples — the ground-truth
-  test): the metric tracks measured selectivity **weakly and only for kinases** — within-kinase paralog
-  ρ **+0.245** [+0.13,+0.35] (all three kinase pairs positive, 0.17–0.34), within-GPCR ρ +0.05 (ns). ≈6%
-  of variance.
+- **Tier-2** (docked vs **measured** ΔpChEMBL, ChEMBL, 3 kinase pairs / 530 triples): looked like a weak
+  kinase signal (within-kinase ρ +0.245) and nothing for GPCRs — but this rested on only 3 pairs.
+- **Tier-3** (DAVIS kinome panel, **78 protein-kinase pairs / 5,304 triples** — properly powered): the
+  Tier-2 number **does not hold.** At the pair level it is a **coin flip** (median per-pair ρ ≈ 0, 55–59%
+  of pairs positive, not sig above chance); the pooled ρ ≈ **0.085** [+0.02,+0.15] is "significant" only
+  because thousands of non-independent triples inflate power — <1% of variance, robust to failed-pose
+  removal. Tier-2's 0.245 was thin-data optimism.
 
 So the central positive is **neither an artifact nor strong targeting** — it is a **weak, kinase-biased**
 selectivity signal, flattered by a kinase-heavy corpus. Docking-selection enriches *binders* well and
@@ -91,8 +97,10 @@ is textbook-true and thus low-information to "confirm." Not pursued.
   negative results, the strongest (SP-DPO) a true held-out generalization test. Each is individually
   underpowered, so this is a consistent *empirical* negative, **not a proof of impossibility**. (The
   data-wall results below — oracle, allosteric — are the *structural* "cannot without new labels" class.)
-- Docking-selection specificity is **real but weak and kinase-specific** (measured-selectivity ρ ≈ 0.25),
-  and method-dependent (Boltz doesn't corroborate — consistent with its weakness).
+- Docking-selection specificity, tested at scale on measured kinase selectivity (DAVIS, 78 pairs), is
+  **practically null** — a coin flip at the pair level (median per-pair ρ ≈ 0); the pooled ρ ≈ 0.085 is a
+  triple-count artifact. Method-dependent too (Boltz doesn't corroborate). The apparent Tier-2 positive
+  (ρ 0.245) was thin-data optimism.
 - The generated pool is synthesizable and physchem-reasonable but **~95% ADMET-liable**.
 - Two would-be rescue paths (learned oracle, allosteric) are **blocked by the same missing data**, and we
   proved each cheaply *before* building, via a pre-check.
@@ -115,8 +123,9 @@ Selectivity must be *learned from* or *validated against* labels in the chemical
    compute.*
 2. **Better physics that needs no labels** — FEP or Boltz-2 affinity as a *selector* (not just validator),
    and validated allosteric structures for a paralog family with measured allosteric-ligand selectivity.
-3. Accept the boundary: use the generator for **synthesizable diversity** and apply the weak
-   docking-selection filter only where it earns its keep — **kinases**.
+3. Accept the boundary: use the generator for **synthesizable diversity**, and treat docking-selection as
+   a *binder* enrichment step (it does rank affinity, own-pocket AUROC 0.66) — **not** a selectivity
+   filter, since at the paralog level it is a coin flip even for kinases.
 
 ## Methodological note (the throughline that made this trustworthy)
 

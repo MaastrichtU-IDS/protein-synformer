@@ -1,4 +1,4 @@
-# Tier-3 (DAVIS): the kinase docking-selectivity signal is real but ~3× weaker than Tier-2 implied
+# Tier-3 (DAVIS): properly powered, kinase docking-selectivity is a coin flip at the pair level
 
 **Date:** 2026-07-15 · Branch `powered-specificity` · Spec/plan:
 `docs/superpowers/{specs,plans}/2026-07-15-davis-kinase-calibration*.md` · Scripts:
@@ -19,35 +19,42 @@ measured on both, Spearman ρ(measured ΔpKd, −docked Δz) — same convention
 selectivity. Compound-clustered bootstrap; per-pair ρ distribution as the guard against a few pairs
 carrying the pooled number.
 
-## Result — keep the sign, break the magnitude
+## Result — at the level that matters, it is a coin flip
 
-| set | kinases | pairs | triples | pooled ρ | clustered 95% CI | per-pair positive | median per-pair ρ |
+| set | kinases | pairs | triples | pooled ρ | clustered 95% CI | **per-pair positive** | **median per-pair ρ** |
 |---|---|---|---|---|---|---|---|
-| **PRIMARY (protein kinases)** | 13 | 78 | 5,304 | **+0.085** | **[+0.024, +0.146]** ✓ excl. 0 | 46/78 (59%) | +0.095 |
-| ROBUSTNESS (all) | 15 | 105 | 7,140 | +0.075 | [+0.016, +0.132] ✓ | 64/105 (61%) | +0.074 |
+| **PRIMARY (protein kinases)** | 13 | 78 | 5,304 | +0.085 | [+0.024, +0.146] | **46/78 (59%)** | **+0.095** |
+| ROBUSTNESS (all) | 15 | 105 | 7,140 | +0.075 | [+0.016, +0.132] | 64/105 (61%) | +0.074 |
+| **PRIMARY, failed poses dropped** | 13 | 78 | 4,936 | +0.084 | — | **43/78 (55%)** | **+0.037** |
 
-- **The signal is REAL** — the pooled ρ CI excludes 0 on 5,304 triples, and it is *diffuse* (median
-  per-pair ρ +0.095 ≈ pooled, so no single pair carries it — unlike the Tier-2 concentration risk).
-- **But it is far weaker than Tier-2 implied:** ρ ≈ **0.085**, not 0.245 — a ~3× reduction. That is
-  **<1% of selectivity rank-variance** (0.085² ≈ 0.7%). At the individual-pair level only **59% of pairs
-  are positive** — not significantly above a coin flip (binomial 46/78, p≈0.1). Tier-2's 0.245 was
-  thin-data optimism (3 pairs, one noisy panel).
+**Lead with the pair — it is the honest unit of evidence.** The question that matters is "can docked
+selectivity rank *one* kinase's paralog selectivity over a sibling?" At that level it is **essentially a
+coin flip**: 43–46 of 78 pairs positive (55–59%, binomial p≈0.1–0.25, **not** significant above chance),
+median per-pair ρ **+0.037 to +0.095 ≈ 0**.
+
+**The pooled ρ ≈ 0.085 is "significant" only because n is enormous.** 5,304 triples are heavily
+non-independent (68 shared drugs, 78 pairs from 13 kinases sharing pockets), which inflates the pooled
+power; the tight CI is an artifact of triple-count, not a usable effect. In absolute terms ρ ≈ 0.085 is
+**<1% of selectivity rank-variance** (0.085² ≈ 0.7%). Robust to failed-pose removal (32/1020 clashing
+score>0 poses dropped → pooled ρ 0.085→0.084, unchanged; pair-level if anything *weaker*).
 
 ## Verdict
 
-**FIRM that it is real; BREAK the magnitude.** Properly powered on dense, low-noise ground truth, docked
-own-vs-mismatch selectivity tracks measured kinase-paralog selectivity to a **statistically detectable but
-practically negligible** degree (ρ ≈ 0.085). The project's one positive stands as *real* but must be
-reported at its true, much smaller effect size — not the 0.245 the capstone provisionally carried.
+**At the pair level — the level that matters for selecting one paralog over another — docking-selection is
+essentially a coin flip (≈55–59% of pairs positive, median per-pair ρ ≈ 0).** The pooled ρ ≈ 0.085 is
+statistically "significant" only because 5,304 non-independent triples inflate the power; it is <1% of
+variance and not a usable signal. So the project's one positive, tested on properly-powered ground truth,
+is **not a usable kinase-selectivity predictor** — it is a whisper detectable only in aggregate.
 
 ## What this changes
 
-- CAPSTONE / FINDINGS: the kinase docking-selection signal is **ρ ≈ 0.085 (~0.7% variance), 59% of pairs
-  positive** — "real but practically negligible," replacing the ρ 0.245 / "~6% variance" figure, which was
-  a 3-pair artifact. The overall thesis (targeting is very hard; only a weak physics signal is reachable)
-  is *strengthened*, and the one positive is now correctly sized.
-- Bringing in the dedicated panel was the right call: it materially corrected the headline number the
-  project would otherwise have stood behind.
+- CAPSTONE / FINDINGS: replace the ρ 0.245 / "~6% variance / real but weak" figure (a 3-pair thin-data
+  artifact) with the honest statement: **at the pair level docking-selection is a coin flip (median
+  per-pair ρ ≈ 0, 55–59% positive); the pooled ρ ≈ 0.085 is significant only by triple-count.** This
+  *strengthens* the overall thesis — even the one apparent positive is, properly powered, practically
+  null.
+- Bringing in the dedicated panel was the right call: the project would otherwise have stood behind an
+  inflated 0.245.
 
 ## Caveats
 

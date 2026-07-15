@@ -76,13 +76,16 @@ corrected via stratification — see the doc's correction note.)*
 |---|---|---|---|
 | Tier-2 | docked selectivity vs **measured** ΔpChEMBL (460 compounds, 530 target-pair triples) — the ground-truth calibration | **real but WEAK and kinase-specific.** All three kinase paralog pairs track measured selectivity (KIT/JAK3 ρ+0.34, KIT/CDK5 +0.32, JAK3/CDK5 +0.17; within-kinase pooled ρ **+0.245**, compound-clustered CI [+0.13,+0.35]); the one testable aminergic-GPCR pair (5-HT1A/5-HT2A) does **not** (ρ+0.05, ns). ρ≈0.25 ≈ ~6% of variance. | [TIER2_CALIBRATION_RESULTS](TIER2_CALIBRATION_RESULTS.md) |
 
-**→ Calibrated against measured affinity, the docking specificity metric is a *real but weak, target-class-
-dependent* selectivity signal: it tracks kinase paralog selectivity (consistently across all 3 kinase
-pairs, ρ 0.17–0.34) and misses 5-HT-receptor subtype selectivity. The project's central positive is thus
-neither an artifact nor strong targeting — it is a weak (ρ≈0.25) kinase-biased signal, plausibly helped by
-the kinase-heavy corpus. Real targeting needs a *learned selectivity oracle* (measured-selectivity data now
-assembled: 1,732 multi-target compounds) and/or allosteric-pocket targeting; docking-selection alone gives
-weak kinase selectivity and nothing for the tested GPCR pair.**
+| study | what | result | doc |
+|---|---|---|---|
+| Tier-3 (DAVIS) | re-run the kinase calibration on the DAVIS kinome panel — **78 protein-kinase pairs / 5,304 triples** (vs Tier-2's 3 pairs) | **at the pair level, a coin flip.** Median per-pair ρ ≈ **0** (43–46/78 pairs positive, 55–59%, not sig above chance). Pooled ρ ≈ **0.085** is "significant" (CI [+0.02,+0.15]) *only* because thousands of non-independent triples inflate power — <1% of variance. Robust to failed-pose removal. Tier-2's 0.245 was a 3-pair thin-data artifact. | [TIER3_DAVIS_RESULTS](TIER3_DAVIS_RESULTS.md) |
+
+**→ Properly powered on dense, low-noise ground truth (DAVIS), the docking specificity metric is *not a
+usable kinase-selectivity predictor*: at the pair level (rank one paralog over its sibling) it is a coin
+flip (median per-pair ρ ≈ 0); the pooled ρ ≈ 0.085 is a triple-count artifact, <1% of variance. The
+project's one apparent positive, tested at scale, is practically null — which *strengthens* the thesis
+that no reachable computational lever confers targeting. (Tier-1's cross-family signal and Tier-2's
+within-kinase ρ 0.245 were both thin-data optimism the DAVIS panel corrects.)**
 
 ---
 
