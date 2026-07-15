@@ -1,4 +1,18 @@
-# Contrastive Paralog-Discrimination Gate (Gate 1) — BORDERLINE POSITIVE (underpowered)
+# Contrastive Paralog-Discrimination Gate (Gate 1) — FAIL (apparent signal is an artifact)
+
+> **Resolution (scramble control):** the "borderline-positive" below was an ARTIFACT. On the fine-tuned
+> model, held-out CSNK1 win-rate under **scrambled** drug→binder-pocket labels is **0.717 ± 0.075** vs
+> **0.789** with true labels — the apparent lift survives label scrambling (gap 0.07 < noise 0.075), so it
+> does not depend on the true binding labels. It is a route/pocket property the FT reweights, **not**
+> transferable paralog selectivity. The base-rate anomaly (below-chance base) was the tell. **Verdict:
+> FAIL — no evidence of transferable paralog discrimination; the training-objective lever joins the
+> controlled nulls.** (Loose end: base TRUE win-rate differed between `discrim_eval` (0.263) and
+> `discrim_control` (0.579); the decisive FT true-vs-scramble comparison is internally consistent in
+> `discrim_control`.) Sections below retained for the record.
+
+---
+
+# (superseded) Borderline positive reading
 
 **Date:** 2026-07-15 · Branch `powered-specificity` · Spec/plan:
 `docs/superpowers/{specs,plans}/2026-07-15-contrastive-*` · Scripts: `scripts/contrastive_{data,train}.py`,
