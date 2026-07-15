@@ -1,14 +1,21 @@
 # Contrastive Paralog-Discrimination Gate (Gate 1) — FAIL (apparent signal is an artifact)
 
-> **Resolution (scramble control):** the "borderline-positive" below was an ARTIFACT. On the fine-tuned
-> model, held-out CSNK1 win-rate under **scrambled** drug→binder-pocket labels is **0.717 ± 0.075** vs
-> **0.789** with true labels — the apparent lift survives label scrambling (gap 0.07 < noise 0.075), so it
-> does not depend on the true binding labels. It is a route/pocket property the FT reweights, **not**
-> transferable paralog selectivity. The base-rate anomaly (below-chance base) was the tell. **Verdict:
-> FAIL — no evidence of transferable paralog discrimination; the training-objective lever joins the
-> controlled nulls.** (Loose end: base TRUE win-rate differed between `discrim_eval` (0.263) and
-> `discrim_control` (0.579); the decisive FT true-vs-scramble comparison is internally consistent in
-> `discrim_control`.) Sections below retained for the record.
+> **Resolution (scramble control + held-out-family rotation):** the "borderline-positive" below was an
+> ARTIFACT, confirmed on **two** held-out families with a label-scramble control:
+>
+> | held-out family | FT TRUE win-rate | FT SCRAMBLE | true−scramble | base (control) |
+> |---|---|---|---|---|
+> | CSNK1 (n=19) | 0.789 | 0.717 ± 0.075 | +0.07 (~1σ) | small-n anomaly |
+> | MAPK (n=56, better-powered) | 0.643 | 0.556 ± 0.063 | +0.087 (~1.4σ) | 0.482 (clean ~chance) |
+>
+> On both families the fine-tuned model's win-rate under **scrambled** drug→binder-pocket labels is **≥
+> chance** — a label-independent route/pocket artifact — and the true-vs-scramble residual (0.07–0.09) is
+> small and **not significant** (~1–1.4σ). The FT fits the train families cleanly (margin +2.7/+3.8) but
+> does **not** transferably discriminate held-out paralogs beyond that artifact. **Verdict: FAIL — no
+> robust transferable paralog discrimination; the training-objective lever joins the controlled nulls.**
+> (The earlier `discrim_eval` base 0.263 vs `discrim_control` 0.579 discrepancy is resolved as CSNK1
+> small-n noise: the better-powered MAPK base is a clean 0.48, so the eval is sound.) Sections below
+> retained for the record.
 
 ---
 
