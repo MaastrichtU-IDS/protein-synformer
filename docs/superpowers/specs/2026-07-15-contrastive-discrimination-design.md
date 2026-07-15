@@ -1,114 +1,100 @@
-# Contrastive Target-Discrimination Training (gated) — Design
+# Contrastive Paralog-Discrimination Training (gated) — Design
 
-**Date:** 2026-07-15 · Sub-project: attack targeting at the *training objective* — the base model was
-never trained to discriminate targets (positives-only route-reconstruction), so no downstream lever could
-extract a signal the loss never created. Add a **contrastive** objective (a route should be more likely
-under its *true* target's pocket than a *measured non-binder's*), but make the expensive full pretraining
-**earn its way in** through a cheap short-fine-tune **transfer gate**. · Depends on: SP-C pocket model +
-`get_log_likelihood` (via `dpo_train` infra), DAVIS + ChEMBL measured panels, the precomputed synthesis
-pathways.
+**Date:** 2026-07-15 (rev. after KIBA paralog feasibility scout) · Sub-project: attack targeting at the
+*training objective*. The base model was trained positives-only (route-reconstruction), so it was never
+asked to discriminate targets — which is why no downstream lever conferred selectivity. Add a
+**contrastive** objective (a route should be more likely under a target it *measurably binds* than a
+paralog it *measurably does not*), gated by a cheap short-fine-tune **held-out-family paralog transfer
+test** before any expensive full pretraining. · Depends on: SP-C pocket model + `get_log_likelihood`
+(`dpo_train` infra), KIBA (routed∩KIBA), existing pocket `.npz` set, `ll_target_specificity` metric.
 
 ## 1. Goal & two-gate framing
 
-> Can a contrastive objective make the pocket-conditioned model's route-likelihood **transferably**
-> discriminate a known binder's true target from measured non-binders on **held-out** kinases (ideally
-> paralogs)?
+> Can a contrastive objective make the pocket model's route-likelihood **transferably** discriminate
+> **paralogs** — tested on a **held-out kinase family never seen in training**?
 
-- **Gate 1 (this spec): transferable discrimination.** Short contrastive fine-tune on TRAIN kinases →
-  re-probe HELD-OUT kinases (paralog + cross-family). Only if held-out discrimination rises meaningfully
-  above chance do we commit to full contrastive pretraining.
-- **Gate 2 (deferred): selective generation.** Transferable discrimination is necessary but not
-  sufficient — SP-DPO showed route-LL preference need not become selective *samples*. Out of scope until
-  Gate 1 passes.
+- **Gate 1 (this spec): transferable paralog discrimination.** Short contrastive fine-tune on TRAIN
+  families → probe a HELD-OUT family's paralog discrimination. Full pretraining only if it clears the gate.
+- **Gate 2 (deferred): selective generation.** Transferable discrimination is necessary, not sufficient
+  (SP-DPO: route-LL preference ≠ selective samples). Out of scope until Gate 1 passes.
 
-**Why this is the right lever and why it's gated:** the discrimination probe was near-uninformative by
-design (a model never trained to discriminate barely discriminates: 54%, ns) — it confirms the diagnosis,
-not the ceiling. The real risk is **transfer**: contrastive training is SP-DPO's objective moved into
-pretraining, and SP-DPO fit in-sample (margin 2.97→3.49) but **did not transfer** to held-out pockets. So
-we gate on held-out transfer, cheaply, before the expensive run.
+**Why gated:** contrastive training is SP-DPO's objective moved into pretraining; SP-DPO fit in-sample but
+did not transfer. Gate on held-out transfer, cheaply, first.
 
-## 2. Feasibility (resolved)
+## 2. Feasibility (resolved by scout)
 
-- **No molecule→route base model exists** (only pocket + sequence checkpoints), so we **cannot project
-  arbitrary SMILES to routes.** Instead use molecules that **already have routes** in
-  `filtered_pathways_370000.pth` (67,429 canonical) **and** measured multi-target binding:
-  - **routed ∩ DAVIS = 22 drugs** — each with a route AND a *dense* 15-kinase Kd profile (clean measured
-    binders and non-binders). This is the clean core.
-  - **routed ∩ Tier-2 multi-target = 90**; **routed ∩ any-ChEMBL-panel-measured = 1,337** — broader but
-    sparser measurement.
-- **Clean measured negatives** (the advisor's correction — not Papyrus-absence, which is *untested*):
-  DAVIS-dense (non-binding is measured, pKd ≈ 5) is the primary negative source; ChEMBL pairs where the
-  molecule is measured on ≥2 panel targets supplement it.
+- **Paralog discrimination exists in KIBA** (unlike CSNK1-in-DAVIS, which was 0): among **313 routed∩KIBA
+  drugs**, within-family drugs that bind one paralog (KIBA ≥12.1) and not a sibling (≤11.3):
+  **MAPK 15, CDK 7, CSNK1 7, PRKC (isoform-pair) up to 20, NEK 6, RPS6KA 5**.
+- **Pockets already exist** (1,324-pocket set): **MAPK all 9 isoforms**, CDK 8/9, CSNK1 all 6, PRKC 6/8 —
+  no new structure-building needed for MAPK/CSNK1 (the "panel expansion" is mostly already on disk).
+- **Routes** for these drugs come from `filtered_pathways` (they are routed∩KIBA by construction).
 
-## 3. Data & pairs
+## 3. Data & labels
 
-- **Molecules:** routed ∩ measured (start with the DAVIS-dense 22 + the 90 Tier-2; expand to the routed
-  ∩ ChEMBL ≥2-measured set for more if needed). Routes from `filtered_pathways` (keyed by canonical SMILES).
-- **Targets:** the 13–15 panel kinases (pockets already prepped). **Split kinases** into TRAIN (~10) and
-  HELD-OUT (~5, including paralog pairs, e.g. hold out one of KIT/JAK3/CDK5's siblings) — the split is over
-  *targets*, not molecules, so held-out discrimination tests target generalization.
-- **Binder / non-binder** per (molecule, kinase): binder = pKd ≥ 7 (Kd ≤ 100 nM); non-binder = pKd ≤ 5
-  (DAVIS non-binder floor / Kd ≥ 10 µM). Drop the ambiguous middle. Pure, TDD'd.
-- **Contrastive triples:** (route, binder-kinase pocket, non-binder-kinase pocket) built from TRAIN
-  kinases only for training; HELD-OUT kinases reserved for the transfer probe.
+- **Molecules:** routed∩KIBA drugs (313) with within-family measurements.
+- **Families / pockets:** train families = **MAPK (9), CDK (8), PRKC (6)**; **held-out family = CSNK1 (6
+  isoforms)** — chosen because it has discriminating drugs (7) and full pocket coverage, and is a *distinct*
+  family so no CSNK1 sibling is ever seen in training (the honest paralog-transfer test). (Held-out family
+  can be rotated as a robustness check.)
+- **Binder / non-binder** per (drug, kinase) from KIBA score: binder ≥ 12.1, non-binder ≤ 11.3, drop the
+  middle. Coarser than pKd (KIBA is an integrated score) — documented caveat.
+- **Contrastive triples:** (route, binder-isoform pocket, non-binder-isoform pocket) **within a family**,
+  built from TRAIN families only.
 
 ## 4. Objective (reuse `dpo_train` infra)
 
-Margin/contrastive loss on route-conditioned log-likelihood (the only change vs `dpo_train` is which
-axis varies — **target**, with measured labels, not molecule):
+Margin loss on route-conditioned log-likelihood, varying the **target** axis with **measured** labels:
 
   `L = mean( softplus( margin − ( LL(route | pocket_binder) − LL(route | pocket_nonbinder) ) ) )`
 
-i.e. push the route's likelihood higher under a pocket it *measurably binds* than one it *measurably does
-not*, for the same route. `LL = get_log_likelihood(code(pocket), route)["total"].sum(dim=1)`. Policy =
-SP-C (trainable); short run (few hundred steps), small lr (1e-5), AdamW, log the train margin and a
-held-out-margin monitor. Reuse `build_out_checkpoint` for a `load_model`-compatible save.
+`LL = get_log_likelihood(code(pocket), route)["total"].sum(dim=1)`. Policy = SP-C (trainable); short run
+(few hundred steps, lr 1e-5, AdamW); log train margin + a held-out-family margin monitor; save via
+`build_out_checkpoint`.
 
-## 5. Transfer gate (the decision) — reuse/adapt `ll_target_specificity.py`
+## 5. Transfer gate (the decision) — adapt `ll_target_specificity.py`
 
-`scripts/ll_target_specificity.py` already computes exactly the discrimination metric (LL of a molecule's
-pathway under its true target vs decoys: top-1 accuracy, mean rank, pairwise win-rate) for the sequence
-models — **adapt it to the pocket model and to measured binder/non-binder targets.** After the short
-fine-tune, on **HELD-OUT kinases**, compute pairwise win-rate = fraction where LL(route | measured-binder)
-> LL(route | measured-non-binder), **stratified paralog vs cross-family**, vs the pre-FT baseline and vs
-chance (0.5). Report base SP-C vs contrastively-fine-tuned, held-out.
+After the short fine-tune, on the **HELD-OUT family (CSNK1)**: pairwise win-rate = fraction of
+within-CSNK1 discriminating (drug, binder-isoform, non-binder-isoform) triples where
+`LL(route|binder) > LL(route|non-binder)`, vs chance (0.5), vs the base SP-C model, with a
+**molecule-clustered bootstrap** CI. This is *pure paralog transfer* — no CSNK1 isoform was in training.
 
 ## 6. Decision criteria (pre-committed)
 
-- **PASS → full contrastive pretraining:** held-out pairwise win-rate rises **meaningfully above chance
-  and above the base model** — ideally on **paralog** pairs, with a bootstrap CI (clustered by molecule)
-  excluding chance.
-- **FAIL → stop (SP-DPO pattern):** train-kinase win-rate rises but **held-out stays at chance** →
-  discrimination doesn't transfer; contrastive pretraining would not confer targeting. Report and stop.
-- **Honesty guards:** report train vs held-out side by side (the gap *is* the finding); small-N held-out
-  is inconclusive-not-impossible; paralog and cross-family reported separately (cross-family lift with
-  paralog-null is a weaker pass than paralog lift).
+- **PASS → full contrastive pretraining:** held-out-family (CSNK1) paralog win-rate rises **meaningfully
+  above chance and above base SP-C**, CI (clustered) excluding 0.5.
+- **FAIL → stop:** train-family win-rate rises but held-out CSNK1 stays at chance (SP-DPO pattern) →
+  paralog discrimination doesn't transfer to an unseen family; contrastive pretraining won't confer it.
+- **Honesty guards:** report train-family vs held-out-family side by side (the gap is the finding);
+  held-out CSNK1 has 7 discriminating drugs → small N, so a null is "no signal at this scale," not proof;
+  rotate the held-out family (CDK/MAPK) as a robustness check if Gate 1 is borderline.
 
 ## 7. Components & interfaces
 
 | file | responsibility |
 |---|---|
-| `scripts/contrastive_data.py` | routed ∩ measured molecules; canonical-SMILES route lookup; binder/non-binder labels from DAVIS/ChEMBL pKd; TRAIN/HELD-OUT kinase split; emit contrastive triples. Pure `binder_label(pkd)`, `make_triples(...)` TDD'd |
-| `scripts/contrastive_train.py` | short contrastive fine-tune (reuse `dpo_train` model-load + `get_log_likelihood`; new `contrastive_loss` TDD'd on toy LLs) → fine-tuned ckpt |
-| `scripts/discrim_eval.py` | adapt `ll_target_specificity` to pocket + measured binder/non-binder; held-out win-rate, paralog/cross-family, base-vs-FT, clustered bootstrap |
+| `scripts/contrastive_data.py` | routed∩KIBA drugs; canonical-SMILES route lookup; UniProt→gene→family map; binder/non-binder from KIBA score; TRAIN-family / HELD-OUT-family split; within-family contrastive triples. Pure `binder_label`, `make_within_family_triples` TDD'd |
+| `scripts/contrastive_train.py` | short contrastive fine-tune (reuse `dpo_train` model-load + `get_log_likelihood`; `contrastive_loss` TDD'd on toy LLs) → fine-tuned ckpt |
+| `scripts/discrim_eval.py` | held-out-family paralog win-rate (adapt `ll_target_specificity`), base-vs-FT, molecule-clustered bootstrap |
 | `docs/CONTRASTIVE_DISCRIM_RESULTS.md` | Gate-1 verdict |
 
 ## 8. Testing (TDD)
 
-- `binder_label(pkd)`: ≥7 → binder, ≤5 → non-binder, else None.
-- `contrastive_loss(ll_bind, ll_nonbind, margin)`: decreases as (ll_bind − ll_nonbind) grows past margin;
-  positive/finite; toy tensors.
-- `make_triples`: only TRAIN kinases in training triples; a molecule with a binder+non-binder yields a
-  triple; held-out kinases excluded from training.
+- `binder_label(kiba)`: ≥12.1 binder, ≤11.3 non-binder, else None.
+- `contrastive_loss(ll_bind, ll_nonbind, margin)`: decreases as (ll_bind − ll_nonbind) exceeds margin;
+  positive/finite (toy tensors).
+- `make_within_family_triples`: only within-family pairs; only TRAIN families in training triples;
+  held-out family excluded; a drug binding one isoform + not a sibling yields a triple.
 - route lookup: canonical-SMILES match into `filtered_pathways`; missing → skipped.
 
 ## 9. Caveats / non-goals
 
-- **Small N** (22 DAVIS-dense + ~90 Tier-2 routed; more from ChEMBL but sparser) — Gate 1 is a *cheap
-  directional test*, not a definitive negative; a held-out null is "no signal at this scale," not proof.
-- **Transfer is the whole risk** (SP-DPO precedent) — that's exactly what Gate 1 measures.
+- **KIBA score is a coarse integrated metric** (not pKd), narrow range; binder/non-binder threshold
+  (12.1/11.3) is the standard binarization but noisier than Kd.
+- **Small held-out N** (CSNK1: 7 discriminating drugs) — Gate 1 is a cheap directional test; a null is
+  "no signal at this scale," not proof; rotate held-out family for robustness.
+- **Transfer is the whole risk** (SP-DPO precedent) — exactly what Gate 1 measures.
 - **Discrimination ≠ selective generation** (Gate 2, deferred).
-- **Kinase-only** (where routes∩measured exists and docking had any signal); GPCRs out of scope.
-- **No full pretraining in this spec** (gated). **No molecule→route projection** (base model absent; we
-  use routed∩measured molecules instead).
-- Reuse `dpo_train`/`ll_target_specificity` rather than new training/eval scaffolding.
+- **No full pretraining in this spec** (gated). Pockets for held-out/train families already exist; the
+  2 missing PRKC/CDK isoforms are simply excluded (not built).
+- Reuse `dpo_train` / `ll_target_specificity`; no new training/eval scaffolding.
