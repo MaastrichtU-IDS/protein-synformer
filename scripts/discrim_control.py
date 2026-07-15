@@ -11,8 +11,10 @@ Also dumps per-isoform mean LL (fixed-pocket bias check).
     .venv-train/bin/python -m scripts.discrim_control --ft data/ckpt/contrastive_pilot.ckpt
 """
 import json
+import os
 import click
 import numpy as np
+DATA_DIR = os.environ.get('CONTRASTIVE_DIR','data/dock/contrastive')
 from scripts.contrastive_train import SP_C, _route_fields, route_pocket_ll
 
 
@@ -34,8 +36,8 @@ def main(base, ft, perms):
         m = Chem.MolFromSmiles(s)
         if m:
             canon2raw[Chem.MolToSmiles(m)] = s
-    held = json.load(open("data/dock/contrastive/heldout_triples.json"))
-    g2t = json.load(open("data/dock/contrastive/gene2tid.json"))
+    held = json.load(open(f"{DATA_DIR}/heldout_triples.json"))
+    g2t = json.load(open(f"{DATA_DIR}/gene2tid.json"))
     rng = np.random.default_rng(42)
 
     def eval_model(ckpt):

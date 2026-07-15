@@ -5,9 +5,11 @@ where LL(route|binder pocket) > LL(route|non-binder pocket). Molecule-clustered 
     .venv-train/bin/python -m scripts.discrim_eval --ft data/ckpt/contrastive_pilot.ckpt
 """
 import json
+import os
 
 import click
 import numpy as np
+DATA_DIR = os.environ.get('CONTRASTIVE_DIR','data/dock/contrastive')
 
 from scripts.contrastive_train import SP_C, _route_fields, route_pocket_ll
 
@@ -47,8 +49,8 @@ def main(base, ft):
         m = Chem.MolFromSmiles(s)
         if m:
             canon2raw[Chem.MolToSmiles(m)] = s
-    held = json.load(open("data/dock/contrastive/heldout_triples.json"))
-    g2t = json.load(open("data/dock/contrastive/gene2tid.json"))
+    held = json.load(open(f"{DATA_DIR}/heldout_triples.json"))
+    g2t = json.load(open(f"{DATA_DIR}/gene2tid.json"))
 
     def eval_model(ckpt):
         model, fpindex, _ = load_model(ckpt, None, device)
@@ -79,7 +81,7 @@ def main(base, ft):
     print(f"  GATE: {verdict}")
     json.dump({"n": len(fflat), "base_winrate": bw, "ft_winrate": fw, "ci": [flo, fhi],
                "delta": fw - bw, "verdict": verdict},
-              open("data/dock/contrastive/gate_summary.json", "w"), indent=2)
+              open(f"{DATA_DIR}/gate_summary.json", "w"), indent=2)
 
 
 if __name__ == "__main__":

@@ -8,12 +8,14 @@ are unit-tested; `main` writes data/dock/contrastive/{train_triples,heldout_trip
 """
 import itertools
 import json
+import os
 import re
 from pathlib import Path
 
 BIND, NON = 12.1, 11.3
-TRAIN_FAMS = {"MAPK", "CDK", "PRKC"}
-HELDOUT_FAM = "CSNK1"
+TRAIN_FAMS = set(os.environ.get("TRAIN_FAMS", "MAPK,CDK,PRKC").split(","))
+HELDOUT_FAM = os.environ.get("HELDOUT_FAM", "CSNK1")
+OUT_DIR = os.environ.get("CONTRASTIVE_DIR", "data/dock/contrastive")
 FAM_PATS = {"CDK": r"^CDK\d+$", "JAK": r"^(JAK[123]|TYK2)$", "FGFR": r"^FGFR\d$",
             "ERBB": r"^(EGFR|ERBB\d)$", "MAPK": r"^MAPK\d+$", "AKT": r"^AKT\d$",
             "GSK3": r"^GSK3[AB]$", "PIM": r"^PIM\d$", "CSNK1": r"^CSNK1",
@@ -104,7 +106,7 @@ def main():
     held = _heldout_triples(rows, gene2fam, HELDOUT_FAM)
     gene2tid = {g: f"{gene2acc[g]}_WT" for g in {t[1] for t in train + held} | {t[2] for t in train + held}
                 if g in gene2acc}
-    out = Path("data/dock/contrastive")
+    out = Path(OUT_DIR)
     out.mkdir(parents=True, exist_ok=True)
     json.dump(train, open(out / "train_triples.json", "w"))
     json.dump(held, open(out / "heldout_triples.json", "w"))

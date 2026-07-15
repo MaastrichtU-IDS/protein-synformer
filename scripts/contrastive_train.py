@@ -7,9 +7,11 @@ ll_target_specificity's pathway featurization + build_pocket_feat + get_log_like
     .venv-train/bin/python -m scripts.contrastive_train --ckpt <SP-C> --out data/ckpt/contrastive_pilot.ckpt
 """
 import json
+import os
 
 import click
 import numpy as np
+DATA_DIR = os.environ.get('CONTRASTIVE_DIR','data/dock/contrastive')
 import torch
 import torch.nn.functional as F
 
@@ -68,9 +70,9 @@ def main(ckpt, out_ckpt, lr, epochs, margin):
         if m:
             canon2raw[Chem.MolToSmiles(m)] = s
 
-    train = json.load(open("data/dock/contrastive/train_triples.json"))
-    held = json.load(open("data/dock/contrastive/heldout_triples.json"))
-    g2t = json.load(open("data/dock/contrastive/gene2tid.json"))
+    train = json.load(open(f"{DATA_DIR}/train_triples.json"))
+    held = json.load(open(f"{DATA_DIR}/heldout_triples.json"))
+    g2t = json.load(open(f"{DATA_DIR}/gene2tid.json"))
 
     def prep(triples):
         out = []
