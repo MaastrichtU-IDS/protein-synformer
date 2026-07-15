@@ -86,29 +86,38 @@ def main(ckpt, out_ckpt, lr, epochs, margin):
     hv = prep(held)
     print(f"usable train triples={len(tr)} heldout={len(hv)}", flush=True)
 
+    def norm_ll(rf, pocket):
+        # length-normalize so routes of different lengths contribute comparably (margin scale stable);
+        # per-route normalization leaves the bind-vs-nonbind SIGN (win-rate) unchanged.
+        n = rf["token_types"].shape[1]
+        return route_pocket_ll(model, rf, pocket, device) / n
+
     opt = T.optim.AdamW(model.parameters(), lr=lr)
+    base = T.load(ckpt, map_location="cpu")
+    best_state, best_trm = None, -1e9
     for ep in range(epochs):
+        # FULL-BATCH: accumulate over all train triples, one step per epoch (batch-1 SGD on 80 triples
+        # thrashed; this stabilizes optimization).
         model.train()
-        losses = []
-        for rf, pb, pn in tr:
-            llb = route_pocket_ll(model, rf, pb, device)
-            lln = route_pocket_ll(model, rf, pn, device)
-            loss = contrastive_loss(llb.unsqueeze(0), lln.unsqueeze(0), margin)
-            opt.zero_grad(); loss.backward(); opt.step()
-            losses.append(loss.item())
-        # monitors: train + heldout margin (bind - nonbind), no grad
+        opt.zero_grad()
+        llb = T.stack([norm_ll(rf, pb) for rf, pb, pn in tr])
+        lln = T.stack([norm_ll(rf, pn) for rf, pb, pn in tr])
+        loss = contrastive_loss(llb, lln, margin)
+        loss.backward(); opt.step()
         model.eval()
         with T.no_grad():
-            tr_m = np.mean([(route_pocket_ll(model, rf, pb, device) - route_pocket_ll(model, rf, pn, device)).item()
-                            for rf, pb, pn in tr])
-            hv_m = np.mean([(route_pocket_ll(model, rf, pb, device) - route_pocket_ll(model, rf, pn, device)).item()
-                            for rf, pb, pn in hv]) if hv else float("nan")
-        print(f"epoch {ep}: loss={np.mean(losses):.4f} train_margin={tr_m:+.3f} heldout_margin={hv_m:+.3f}",
+            trm = float((T.stack([norm_ll(rf, pb) for rf, pb, pn in tr]) -
+                         T.stack([norm_ll(rf, pn) for rf, pb, pn in tr])).mean())
+            hvm = (float((T.stack([norm_ll(rf, pb) for rf, pb, pn in hv]) -
+                          T.stack([norm_ll(rf, pn) for rf, pb, pn in hv])).mean()) if hv else float("nan"))
+        print(f"epoch {ep}: loss={loss.item():.4f} train_margin(norm)={trm:+.4f} heldout_margin(norm)={hvm:+.4f}",
               flush=True)
+        if trm > best_trm:   # save BEST-train-margin state, not the final (advisor)
+            best_trm = trm
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    base = T.load(ckpt, map_location="cpu")
-    T.save(build_out_checkpoint(base["hyper_parameters"], model.state_dict()), out_ckpt)
-    print(f"WROTE {out_ckpt}", flush=True)
+    T.save(build_out_checkpoint(base["hyper_parameters"], best_state), out_ckpt)
+    print(f"WROTE {out_ckpt} (best train_margin(norm)={best_trm:+.4f})", flush=True)
 
 
 if __name__ == "__main__":
