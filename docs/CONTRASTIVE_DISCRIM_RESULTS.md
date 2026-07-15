@@ -9,10 +9,13 @@
 > | MAPK (n=56, better-powered) | 0.643 | 0.556 ± 0.063 | +0.087 (~1.4σ) | 0.482 (clean ~chance) |
 >
 > On both families the fine-tuned model's win-rate under **scrambled** drug→binder-pocket labels is **≥
-> chance** — a label-independent route/pocket artifact — and the true-vs-scramble residual (0.07–0.09) is
-> small and **not significant** (~1–1.4σ). The FT fits the train families cleanly (margin +2.7/+3.8) but
-> does **not** transferably discriminate held-out paralogs beyond that artifact. **Verdict: FAIL — no
-> robust transferable paralog discrimination; the training-objective lever joins the controlled nulls.**
+> chance** — a label-independent route/pocket artifact — and the true-vs-scramble difference is
+> **consistent with zero** (0.07–0.09; the ~1.4σ on the better-powered MAPK arm is the max of two families
+> = what noise looks like, not a residual signal). The FT fits the train families cleanly (margin
+> +2.7/+3.8) but does **not** transferably discriminate held-out paralogs beyond the artifact. **Verdict:
+> FAIL — no transferable paralog discrimination.** *Scope: this is a **short contrastive fine-tune (a cheap
+> gate)**, not from-scratch contrastive pretraining at scale — an **empirical** "did not, at reachable
+> scale," not a structural impossibility.* Joins the generator-side nulls.
 > (The earlier `discrim_eval` base 0.263 vs `discrim_control` 0.579 discrepancy is resolved as CSNK1
 > small-n noise: the better-powered MAPK base is a clean 0.48, so the eval is sound.) Sections below
 > retained for the record.

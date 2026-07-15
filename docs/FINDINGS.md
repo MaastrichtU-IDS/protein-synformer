@@ -23,9 +23,10 @@ cross-cutting scorer question (is the docking proxy trustworthy?).
 | SP-L | enrichment loop: re-bias frozen model toward docking-winners | **null** — winners use the generator's *modal* motifs; nothing distinctive to amplify (inert even at 30× weights) | [SP_L_RESULTS](SP_L_RESULTS.md) |
 | SP-F | fragment-seeding hill-climb: analog-search around best dockers | **smina win 4/5 but NOT robust** — Boltz disagreed on 3/5; the biggest smina win (P10721 −2.34) was a co-folding-refuted, diversity-collapsed **smina-hacking artifact** | [SP_F_RESULTS](SP_F_RESULTS.md) |
 | SP-DPO | **weight-update** lever: DPO fine-tune SP-C on per-molecule own-vs-mismatch specificity pairs (pilot) | **null (pilot, underpowered\*)** — the strongest-*designed* test (true held-out generalization): DPO **fit the preference in-sample** (train margin 2.97→3.49) but it **did not transfer** — held-out DPO−base own-preference split 2/2, pooled +0.08 [−0.22,+0.41] ns. ADMET unchanged. \*n=4/1-seed → inconclusive, not "cannot work" | [SP_DPO_RESULTS](SP_DPO_RESULTS.md) |
+| SP-CT | **training-objective** lever: short **contrastive** fine-tune (route more likely under a target a drug *measurably binds* than a paralog it does not), gated by a held-out-family paralog-transfer test | **null (scramble-controlled).** Fit train families (margin +2.7/+3.8); an apparent held-out lift (win-rate 0.68) was **killed by a label-scramble control** — it survived scrambling (artifact), replicated across 2 held-out families (CSNK1, MAPK); true−scramble consistent with zero. A *gated fine-tune probe*, not full pretraining. | [CONTRASTIVE_DISCRIM_RESULTS](CONTRASTIVE_DISCRIM_RESULTS.md) |
 
-**→ No generation-side lever — conditioning, motif-enrichment, local search, *or weight updates* — confers
-robust targeting.** The sharpest statement of the wall is SP-DPO's: the generator **can be trained to fit
+**→ No generation-side lever — conditioning, motif-enrichment, local search, weight updates, *or a
+contrastive training objective* — confers robust targeting.** The sharpest statement of the wall is SP-DPO's/SP-CT's: the generator **can be trained to fit
 the specificity preference in-sample, but it does not generalize** to making raw samples target-specific on
 unseen pockets. (SP-DPO is a pilot — underpowered, not a proof of impossibility.)
 

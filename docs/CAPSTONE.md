@@ -15,8 +15,9 @@ answer is clear and unusually well-evidenced:
 > operate in, and no such labels exist for the synthesizable, novel chemotypes this generator explores**
 > (they exist elsewhere, in ChEMBL medicinal chemistry, but not *there*). **Empirically**, every
 > generation-side lever we could test and validate at reachable scale — sequence/pocket conditioning,
-> motif-enrichment, fragment search, and DPO weight-updates — **failed** to confer transferable targeting
-> (five uniformly negative results; each individually underpowered, so this is a consistent empirical
+> motif-enrichment, fragment search, DPO weight-updates, and a scramble-controlled **contrastive training
+> objective** (a gated fine-tune probe, not full pretraining) — **failed** to confer transferable targeting
+> (six uniformly negative results; each individually underpowered, so this is a consistent empirical
 > negative, not a proof of impossibility). **Structurally**, the two would-be rescues are blocked by that
 > missing data: a learned reward oracle trained on ChEMBL is out-of-domain for the generator's molecules
 > and *unvalidatable* there (killed on a domain pre-check), and an allosteric alternative *cannot* be
@@ -129,7 +130,11 @@ Selectivity must be *learned from* or *validated against* labels in the chemical
 
 ## Methodological note (the throughline that made this trustworthy)
 
-The project's most valuable habit was **validating the instrument before building on it**. The calibration
+The project's most valuable habit was **validating the instrument before building on it**. The contrastive
+training arc (SP-CT) is the cleanest microcosm: a fine-tune produced an apparent held-out paralog signal
+(win-rate 0.68) that looked like the project's first positive — and a **label-scramble control killed it**
+(the win-rate survived scrambling the true binding labels, on two held-out families). An apparent positive
+that survives until the control is exactly what separates a trustworthy negative from a hopeful one. The calibration
 revealed the central positive was weak and kinase-only (not the strong targeting the raw −0.8 delta
 implied); two cheap pre-checks (the ChEMBL known/random controls' absence, then the oracle Tanimoto-domain
 check) killed doomed builds in minutes; and adversarial review repeatedly caught over-reads before they
